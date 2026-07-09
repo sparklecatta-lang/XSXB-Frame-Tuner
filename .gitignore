@@ -1,0 +1,32 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.env
+.env.*
+*.log
+
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Local tuner registry and per-project data.
+data/projects.json
+data/projects.json.*
+data/projects.local.json
+data/projects/
+!data/.gitkeep
+
+# Imported frames, attachments, generated workspace assets, and audio cache.
+workspace/assets/*
+workspace/projects/*
+!workspace/.gitkeep
+!workspace/assets/.gitkeep
+!workspace/projects/.gitkeep
+audio/projects/*
+!audio/.gitkeep
+!audio/projects/.gitkeep

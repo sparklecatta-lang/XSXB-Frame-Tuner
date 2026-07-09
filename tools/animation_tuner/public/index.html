@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XSXB Frame Tuner</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="mark"></div>
+          <div class="brandMain">
+            <div class="brandTop">
+              <h1>XSXB Frame Tuner</h1>
+              <div class="languageButtons" aria-label="Language">
+                <button type="button" class="languageButton" data-language="zh" title="中文">中</button>
+                <button type="button" class="languageButton" data-language="en" title="English">EN</button>
+              </div>
+            </div>
+            <p data-i18n="brandSubtitle">帧动画调参工作台</p>
+          </div>
+        </div>
+        <label class="field">
+          <span data-i18n="project">项目</span>
+          <select id="projectSelect"></select>
+        </label>
+        <div class="buttonRow projectActions">
+          <button id="refreshProject" class="secondary" data-i18n="refreshAnimationList">刷新动画列表</button>
+        </div>
+        <label class="field languageField">
+          <span data-i18n="language">语言</span>
+          <select id="languageSelect">
+            <option value="zh" data-i18n="languageChinese">中文</option>
+            <option value="en" data-i18n="languageEnglish">English</option>
+          </select>
+        </label>
+        <div class="characterGroupGrid">
+          <label class="field">
+            <span data-i18n="character">角色</span>
+            <select id="profileSelect"></select>
+          </label>
+          <label class="field">
+            <span data-i18n="group">组</span>
+            <select id="groupSelect"></select>
+          </label>
+        </div>
+        <label class="field">
+          <span data-i18n="findGroup">查找组</span>
+          <input id="groupSearch" type="search" placeholder="名称、类型、来源" data-i18n-placeholder="groupSearchPlaceholder" autocomplete="off" />
+        </label>
+        <details class="panel" data-panel="scene-scale" open>
+          <summary><h2 data-i18n="sceneScalePanel">场景</h2></summary>
+          <div class="sceneGrid">
+            <label class="field">
+              <span data-i18n="scene">场景</span>
+              <select id="sceneSelect"></select>
+            </label>
+            <label class="number">
+              <span data-i18n="sceneScale">场景倍率</span>
+              <input id="sceneScale" type="number" min="0.01" step="0.01" value="1" />
+            </label>
+          </div>
+        </details>
+        <details class="panel" data-panel="adjustment-base" open>
+          <summary><h2 data-i18n="adjustmentBase">调整 Base</h2></summary>
+          <div class="adjustModeRow">
+            <label class="toggle compact"><input id="adjustCharacter" type="checkbox" /><span data-i18n="character">角色</span></label>
+            <label class="toggle compact"><input id="adjustGroup" type="checkbox" /><span data-i18n="group">组</span></label>
+            <label class="toggle compact"><input id="adjustFrame" type="checkbox" /><span data-i18n="frame">帧</span></label>
+          </div>
+          <div class="adjustGrid">
+            <label class="number stepNumber"><span data-i18n="scale">缩放</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="-1">&lsaquo;</button><input id="baseScale" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScale" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="rotate">旋转</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="-1">&lsaquo;</button><input id="baseRotation" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseRotation" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="scaleX">缩放 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="-1">&lsaquo;</button><input id="baseScaleX" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScaleX" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="scaleY">缩放 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="-1">&lsaquo;</button><input id="baseScaleY" type="number" step="0.001" readonly /><button type="button" class="numberStep" data-step-target="baseScaleY" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="offsetX">偏移 X</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="-1">&lsaquo;</button><input id="baseX" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseX" data-step-dir="1">&rsaquo;</button></span></label>
+            <label class="number stepNumber"><span data-i18n="offsetY">偏移 Y</span><span class="numberStepper"><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="-1">&lsaquo;</button><input id="baseY" type="number" step="1" readonly /><button type="button" class="numberStep" data-step-target="baseY" data-step-dir="1">&rsaquo;</button></span></label>
+          </div>
+          <button id="applyBaseToFrame" class="secondary" data-i18n="copyBaseToSelected" hidden>复制 Base 到选中帧</button>
+          <input id="characterBaseScale" type="hidden" readonly />
+          <input id="characterBaseSource" type="hidden" readonly />
+          <input id="frameScale" type="hidden" />
+          <input id="frameScaleX" type="hidden" />
+          <input id="frameScaleY" type="hidden" />
+          <input id="frameX" type="hidden" />
+          <input id="frameY" type="hidden" />
+          <input id="frameRotation" type="hidden" />
+          <input id="frameDuration" type="hidden" min="1" step="5" />
+          <label id="groupTimeField" class="number" hidden><span data-i18n="groupTimeMs">组时长</span><input id="groupTimeMs" type="number" min="1" step="10" /></label>
+          <div class="frameOptionGrid">
+            <label class="toggle"><input id="frameReference" type="checkbox" /><span data-i18n="keepReference">设参考帧</span></label>
+            <label class="toggle"><input id="frameDisabled" type="checkbox" /><span data-i18n="disableFrame">禁用此帧</span></label>
+          </div>
+        </details>
+        <details class="panel" data-panel="boxes">
+          <summary><h2 data-i18n="boxes">碰撞框</h2></summary>
+          <label class="toggle"><input id="showBoxes" type="checkbox" /><span data-i18n="showBoxes">显示框体</span></label>
+          <div class="field boxPickerField">
+            <div id="boxChoices" class="boxChoices">
+              <label class="toggle compact boxChoice"><input type="checkbox" value="hurtbox" data-box-choice="hurtbox" /><span data-i18n="hurtbox">受击框</span></label>
+              <label class="toggle compact boxChoice"><input type="checkbox" value="hitbox" data-box-choice="hitbox" /><span data-i18n="hitbox">攻击框</span></label>
+              <label class="toggle compact boxChoice"><input type="checkbox" value="collisionbox" data-box-choice="collisionbox" /><span data-i18n="collisionbox">碰撞体</span></label>
+            </div>
+          </div>
+          <label class="toggle"><input id="boxEnabled" type="checkbox" /><span data-i18n="boxEnabled">这一帧启用碰撞框</span></label>
+        </details>
+        <button id="save" class="save" data-i18n="saveTuning">保存调参</button>
+        <div id="saveState" class="saveState" data-i18n="noChanges">没有改动</div>
+        <div id="status" class="status" hidden></div>
+      </aside>
+
+      <section class="workspace">
+        <div class="toolbar">
+          <div class="toolbarMain">
+            <strong id="canvasTitle" data-i18n="canvas">画布</strong>
+            <span id="hint" data-i18n="hint">拖动画布可平移。选中附加帧：拖动移动，按住 R 滚轮旋转，按住 Z 滚轮缩放。</span>
+            <div id="selectionHud" class="selectionHud">帧 -</div>
+          </div>
+          <div class="toolbarActions">
+            <div class="appearanceControls" aria-label="UI appearance">
+              <div class="themeSwitch" aria-label="Theme">
+                <button type="button" class="themeButton" data-theme="dark" title="黑色 UI">黑</button>
+                <button type="button" class="themeButton" data-theme="light" title="白色 UI">白</button>
+              </div>
+              <label class="canvasColorControl" title="画布颜色">
+                <input id="canvasColor" type="color" value="#000000" />
+              </label>
+            </div>
+            <div class="historyControls">
+              <button id="playPause" class="secondary iconButton playButton" data-i18n-title="play" title="播放">播放</button>
+              <button id="ghostToggle" class="secondary iconButton active" data-i18n-title="ghost" title="残影">影</button>
+              <button id="undoTop" class="secondary iconButton" data-i18n-title="undo" title="撤销">&larr;</button>
+              <button id="redoTop" class="secondary iconButton" data-i18n-title="redo" title="重做">&rarr;</button>
+            </div>
+            <button id="resetView" class="secondary" data-i18n="resetView">重置视图</button>
+          </div>
+        </div>
+        <canvas id="stage" width="1280" height="760"></canvas>
+        <div id="filmstrip" class="filmstrip"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
