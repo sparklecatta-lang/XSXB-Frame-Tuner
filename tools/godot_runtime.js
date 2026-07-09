@@ -208,7 +208,16 @@ func current_collision_box_size() -> Vector2:
 
 
 func current_collision_box_position() -> Vector2:
-	return current_box_position("collisionbox")
+	var box: Dictionary = _current_box("collisionbox")
+	if box.is_empty() or not _box_is_enabled(box):
+		return Vector2.ZERO
+	var transform: Dictionary = _combined_visual_transform(_current_animation, _current_frame)
+	var runtime_scale: float = _character_scale() * scene_scale()
+	return _collision_box_actor_position(box, transform, runtime_scale)
+
+
+func current_grounded_collision_box_position() -> Vector2:
+	return current_collision_box_position()
 
 
 func current_collision_box_rotation_degrees() -> float:
@@ -681,6 +690,12 @@ func _box_actor_position(box: Dictionary, transform: Dictionary, runtime_scale: 
 	return anchor_offset + local_offset.rotated(deg_to_rad(float(transform.get("rotation", 0.0)) * render_facing_value))
 
 
+func _collision_box_actor_position(box: Dictionary, transform: Dictionary, runtime_scale: float) -> Vector2:
+	var box_position: Vector2 = _box_actor_position(box, transform, runtime_scale)
+	var box_size: Vector2 = _box_actor_size(box, transform, runtime_scale, Vector2(40.0, 90.0))
+	return Vector2(box_position.x, -box_size.y * 0.5)
+
+
 func _box_actor_size(box: Dictionary, transform: Dictionary, runtime_scale: float, fallback: Vector2) -> Vector2:
 	var size: Vector2 = _vector_from_value(box.get("size", {}), fallback)
 	var sprite_scale_x: float = absf(runtime_scale * float(transform.get("scale_x", 1.0)))
@@ -705,7 +720,7 @@ func _apply_frame_collision_box(frame_key: String, transform: Dictionary, runtim
 		return
 	var rect_shape: RectangleShape2D = _ensure_rectangle_shape(_body_collision)
 	rect_shape.size = _box_actor_size(box, transform, runtime_scale, Vector2(40.0, 90.0))
-	_body_collision.position = _box_actor_position(box, transform, runtime_scale)
+	_body_collision.position = _collision_box_actor_position(box, transform, runtime_scale)
 	_body_collision.rotation_degrees = 0.0
 	_body_collision.disabled = false
 

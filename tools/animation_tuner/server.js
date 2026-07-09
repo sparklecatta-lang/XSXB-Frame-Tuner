@@ -714,9 +714,10 @@ function validateRuntimeBindingReaders(project, manifest) {
       if (/current_hurtbox_enabled|current_hurtbox_size|current_hurtbox_position/.test(text)) found.runtimeHurtboxInterface = true;
       if (/func\s+_apply_frame_hurtbox\s*\(/.test(text)) found.runtimeAppliesHurtbox = true;
       if (/source_faces_left|func\s+render_facing\s*\(/.test(text)) found.runtimeSourceFacing = true;
-      if (/BodyCollision/.test(text) && /RectangleShape2D\.new\s*\(\s*\)/.test(text) && /\.size\s*=/.test(text)) found.hardcodedGameplayBodyCollision = true;
-      if (/BodyCollision/.test(text) && /current_collision_box_size|current_collision_box_position/.test(text)) found.gameplayBodyCollisionUsesRuntime = true;
-      if (/BodyCollision/.test(text) && /-\s*size\.y\s*\*\s*0\.5|-\s*_body_shape\.size\.y\s*\*\s*0\.5|-\s*runtime_shape\.size\.y\s*\*\s*0\.5/.test(text)) found.gameplayBodyCollisionGroundAnchored = true;
+      const hasGameplayMovementCollision = /BodyCollision|movement_collision_shape|movement_rectangle_shape/i.test(text);
+      if (hasGameplayMovementCollision && /RectangleShape2D\.new\s*\(\s*\)/.test(text) && /\.size\s*=/.test(text)) found.hardcodedGameplayBodyCollision = true;
+      if (hasGameplayMovementCollision && /current_collision_box_size|current_collision_box_position|current_grounded_collision_box_position/.test(text)) found.gameplayBodyCollisionUsesRuntime = true;
+      if (hasGameplayMovementCollision && /current_grounded_collision_box_position|-\s*size\.y\s*\*\s*0\.5|-\s*_body_shape\.size\.y\s*\*\s*0\.5|-\s*runtime_shape\.size\.y\s*\*\s*0\.5|-\s*movement_rectangle_shape\.size\.y\s*\*\s*0\.5/.test(text)) found.gameplayBodyCollisionGroundAnchored = true;
       if (/ATTACK_RANGE|ATTACK_HEIGHT|AIR_ATTACK_RANGE|AIR_ATTACK_HEIGHT/.test(text)) found.hardcodedGameplayAttackRange = true;
       if (/current_hitbox_size|current_hitbox_position|current_hitbox_enabled/.test(text) && /current_hurtbox_size|current_hurtbox_position|current_hurtbox_enabled|_runtime_hurt_rect/.test(text)) found.gameplayAttackUsesRuntimeHitbox = true;
       if (/func\s+(?:current_)?animation_duration\s*\(|animation_finished\s*\./.test(text)) found.animationDurationInterface = true;
@@ -766,9 +767,9 @@ function validateRuntimeBindingReaders(project, manifest) {
     warnings.push("Runtime has no source_faces_left/render_facing interface; imported art facing left can make gameplay directions render backwards.");
   }
   if (needsFrameBoxes && found.hardcodedGameplayBodyCollision && !found.gameplayBodyCollisionUsesRuntime) {
-    warnings.push("Gameplay creates its own BodyCollision rectangle but does not sync it from xsxb_frame_actor current_collision_box_*; tuner box and scene scale changes will not affect in-game movement collision.");
+    warnings.push("Gameplay creates its own movement collision rectangle but does not sync it from xsxb_frame_actor current_collision_box_*; tuner box and scene scale changes will not affect in-game movement collision.");
   } else if (needsFrameBoxes && found.hardcodedGameplayBodyCollision && found.gameplayBodyCollisionUsesRuntime && !found.gameplayBodyCollisionGroundAnchored) {
-    warnings.push("Gameplay BodyCollision sync appears to use the runtime collisionbox Y position directly; grounded movement should anchor the collision bottom at the actor origin so visual Y offsets are not cancelled by floor collision.");
+    warnings.push("Gameplay movement collision sync appears to use the runtime collisionbox Y position directly; grounded movement should anchor the collision bottom at the actor origin so visual Y offsets are not cancelled by floor collision.");
   }
   if (needsFrameBoxes && found.hardcodedGameplayAttackRange && !found.gameplayAttackUsesRuntimeHitbox) {
     warnings.push("Gameplay still appears to use fixed attack range/height without intersecting xsxb_frame_actor hitbox against target hurtbox; tuner hitbox changes will not affect combat.");

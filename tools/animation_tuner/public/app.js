@@ -3045,8 +3045,8 @@ function boxScreenRect(boxName, index = selectedFrame, group = currentGroup, gro
   };
   const rotatedCenter = rotateVector(localCenter, auto.rotation);
   const centerX = origin.x + auto.offset.x * worldScale + rotatedCenter.x;
-  const centerY = origin.y + auto.offset.y * worldScale + rotatedCenter.y;
-  const rotation = auto.rotation + (Number(box.rotation || 0) * auto.facing * Math.PI) / 180;
+  const centerY = origin.y + (isCollisionBox(boxName) ? 0 : auto.offset.y * worldScale) + rotatedCenter.y;
+  const rotation = isCollisionBox(boxName) ? 0 : auto.rotation + (Number(box.rotation || 0) * auto.facing * Math.PI) / 180;
   const localCorners = [
     { x: -width / 2, y: -height / 2 },
     { x: width / 2, y: -height / 2 },
