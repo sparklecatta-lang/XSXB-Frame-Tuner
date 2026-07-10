@@ -56,3 +56,12 @@ Read this reference only when changing the tuner UI, save payload, or direct-man
 - Show `Hold H to hide reference` while a reference overlay is active.
 - Keep frame-card labels short; move filenames and paths to tooltips or debug metadata.
 - Preserve direct visual comparison between tuner and runtime rather than adding one-off preview corrections.
+
+## Self-Update
+
+- Check the official GitHub `main` branch once after the tuner page opens; do not block project loading on the network request.
+- Hide update controls when the local commit already matches GitHub.
+- When an update exists, show the current and latest short commit IDs and one explicit Update and restart action.
+- Disable update while tuner edits are unsaved.
+- Never overwrite tracked local code changes, update a non-`main` branch, or trust a remote outside the official XSXB repository.
+- Update the tuner clone and installed `xsxb-frame-tuner` skill as one operation, then restart the local server and reconnect the page.

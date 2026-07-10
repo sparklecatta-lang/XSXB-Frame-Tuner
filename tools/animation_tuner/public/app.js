@@ -1,4 +1,8 @@
 const els = {
+  updatePanel: document.querySelector("#updatePanel"),
+  updateVersion: document.querySelector("#updateVersion"),
+  updateMessage: document.querySelector("#updateMessage"),
+  updateButton: document.querySelector("#updateButton"),
   projectSelect: document.querySelector("#projectSelect"),
   refreshProject: document.querySelector("#refreshProject"),
   languageSelect: document.querySelector("#languageSelect"),
@@ -214,6 +218,18 @@ const I18N = {
     undone: "已撤销：{label}",
     redone: "已重做：{label}",
     unsavedChanges: "有未保存改动",
+    updateAvailable: "发现新版本",
+    updateNow: "更新并重启",
+    updateReady: "将从 GitHub 更新 Tuner 和 Skill，然后自动重启并重新连接。",
+    updateBlockedNotGit: "当前工具不是 Git 克隆，无法自动更新。",
+    updateBlockedRemote: "当前 origin 不是官方 XSXB 仓库，已阻止自动更新。",
+    updateBlockedBranch: "请先切换到 main 分支再更新。",
+    updateBlockedChanges: "存在未提交的代码修改。请先处理这些修改，更新器不会覆盖它们。",
+    updateSaveFirst: "请先保存当前调参，再更新并重启。",
+    updateInstalling: "正在更新 Tuner 和 Skill，请勿关闭页面……",
+    updateRestarting: "更新完成，正在重启 Tuner 并重新连接……",
+    updateFailed: "更新失败：{message}",
+    updateReconnectFailed: "Tuner 已更新，但自动重连超时。请刷新页面或重新启动 Tuner。",
     warnings: "\n警告：\n{warnings}",
     width: "宽",
   },
@@ -341,6 +357,18 @@ const I18N = {
     undone: "Undone: {label}",
     redone: "Redone: {label}",
     unsavedChanges: "Unsaved changes",
+    updateAvailable: "Update available",
+    updateNow: "Update and restart",
+    updateReady: "Update Tuner and Skill from GitHub, then restart and reconnect automatically.",
+    updateBlockedNotGit: "This Tuner is not a Git clone, so it cannot update itself automatically.",
+    updateBlockedRemote: "The origin is not the official XSXB repository. Automatic update was blocked.",
+    updateBlockedBranch: "Switch to the main branch before updating.",
+    updateBlockedChanges: "Tracked code changes are not committed. The updater will not overwrite them.",
+    updateSaveFirst: "Save the current tuning before updating and restarting.",
+    updateInstalling: "Updating Tuner and Skill. Keep this page open…",
+    updateRestarting: "Update complete. Restarting Tuner and reconnecting…",
+    updateFailed: "Update failed: {message}",
+    updateReconnectFailed: "Tuner was updated, but automatic reconnect timed out. Refresh the page or restart Tuner.",
     warnings: "\nWarnings:\n{warnings}",
     width: "Width",
   },
@@ -435,11 +463,114 @@ const GROUP_PLAYBACK_FRAME = "__group";
 let dirty = false;
 let saveInFlight = false;
 let lastSavedAt = "";
+let tunerUpdateStatus = null;
+let tunerUpdateToken = "";
+let tunerUpdatePhase = "";
 
 function t(key, vars = {}) {
   const table = I18N[language] || I18N.zh;
   const template = table[key] ?? I18N.zh[key] ?? key;
   return String(template).replace(/\{(\w+)\}/g, (_match, name) => vars[name] ?? "");
+}
+
+function shortCommit(value) {
+  return String(value || "").slice(0, 7) || "-";
+}
+
+function tunerUpdateBlockMessage(reason) {
+  const messages = {
+    not_git_clone: "updateBlockedNotGit",
+    untrusted_remote: "updateBlockedRemote",
+    wrong_branch: "updateBlockedBranch",
+    tracked_changes: "updateBlockedChanges",
+  };
+  return t(messages[reason] || "updateReady");
+}
+
+function renderTunerUpdateStatus() {
+  if (!els.updatePanel || !els.updateMessage || !els.updateButton || !els.updateVersion) return;
+  const available = Boolean(tunerUpdateStatus?.updateAvailable);
+  els.updatePanel.hidden = !available;
+  if (!available) return;
+
+  els.updateVersion.textContent = `${shortCommit(tunerUpdateStatus.currentCommit)} → ${shortCommit(tunerUpdateStatus.latestCommit)}`;
+  let message = tunerUpdateBlockMessage(tunerUpdateStatus.blockReason);
+  if (tunerUpdatePhase === "installing") message = t("updateInstalling");
+  else if (tunerUpdatePhase === "restarting") message = t("updateRestarting");
+  else if (tunerUpdatePhase === "reconnect_failed") message = t("updateReconnectFailed");
+  else if (tunerUpdatePhase.startsWith("failed:")) message = t("updateFailed", { message: tunerUpdatePhase.slice(7) });
+  else if (dirty) message = t("updateSaveFirst");
+
+  const busy = tunerUpdatePhase === "installing" || tunerUpdatePhase === "restarting";
+  els.updateMessage.textContent = message;
+  els.updatePanel.classList.toggle("isUpdating", busy);
+  els.updateButton.disabled = busy || dirty || !tunerUpdateStatus.canUpdate;
+}
+
+async function checkTunerUpdate() {
+  try {
+    const response = await fetch(`/api/update-status?opened=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    tunerUpdateStatus = payload;
+    tunerUpdateToken = String(payload.token || "");
+    tunerUpdatePhase = "";
+    renderTunerUpdateStatus();
+  } catch (error) {
+    console.warn("XSXB update check failed", error);
+  }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForTunerRestart(expectedCommit) {
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    await wait(700);
+    try {
+      const response = await fetch(`/api/update-status?reconnect=${Date.now()}`, { cache: "no-store" });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      if (!payload.restarting && payload.currentCommit === expectedCommit) {
+        window.location.reload();
+        return;
+      }
+    } catch {
+      // A short connection failure is expected while the local server restarts.
+    }
+  }
+  tunerUpdatePhase = "reconnect_failed";
+  renderTunerUpdateStatus();
+}
+
+async function installTunerUpdate() {
+  if (!tunerUpdateStatus?.canUpdate || !tunerUpdateToken) return;
+  if (dirty) {
+    renderTunerUpdateStatus();
+    return;
+  }
+  tunerUpdatePhase = "installing";
+  renderTunerUpdateStatus();
+  try {
+    const response = await fetch("/api/update", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-xsxb-update-token": tunerUpdateToken,
+      },
+      body: "{}",
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    tunerUpdatePhase = "restarting";
+    renderTunerUpdateStatus();
+    await waitForTunerRestart(payload.update?.currentCommit || tunerUpdateStatus.latestCommit);
+  } catch (error) {
+    tunerUpdatePhase = `failed:${error.message}`;
+    renderTunerUpdateStatus();
+  }
 }
 
 function applyLanguage() {
@@ -584,6 +715,7 @@ function updateSaveState() {
   els.save.disabled = saveInFlight;
   els.save.textContent = saveInFlight ? t("saving") : dirty ? t("saveTuningDirty") : t("saveTuning");
   document.body.classList.toggle("hasUnsavedChanges", dirty);
+  renderTunerUpdateStatus();
 }
 
 function markDirty() {
@@ -5862,6 +5994,7 @@ if (els.ghostToggle) {
 
 els.resetView.addEventListener("click", () => { fitView(); draw(); });
 els.save.addEventListener("click", () => save().catch((error) => status(t("saveFailed", { message: error.message }))));
+if (els.updateButton) els.updateButton.addEventListener("click", installTunerUpdate);
 if (els.fps) {
   armInputUndo(els.fps, "group fps");
   els.fps.addEventListener("input", updateGroupPlaybackFromInputs);
@@ -6145,4 +6278,9 @@ requestAnimationFrame(animate);
 applyUiTheme();
 applyCanvasColor();
 applyLanguage();
-loadConfig().then(resizeCanvas).catch((error) => status(t("loadFailed", { message: error.message })));
+loadConfig()
+  .then(() => {
+    resizeCanvas();
+    checkTunerUpdate();
+  })
+  .catch((error) => status(t("loadFailed", { message: error.message })));

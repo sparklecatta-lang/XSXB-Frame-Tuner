@@ -23,6 +23,14 @@
             <p data-i18n="brandSubtitle">帧动画调参工作台</p>
           </div>
         </div>
+        <section id="updatePanel" class="updatePanel" aria-live="polite" hidden>
+          <div class="updateHeading">
+            <strong data-i18n="updateAvailable">发现新版本</strong>
+            <span id="updateVersion" class="updateVersion"></span>
+          </div>
+          <p id="updateMessage" class="updateMessage"></p>
+          <button id="updateButton" type="button" class="updateButton" data-i18n="updateNow">更新并重启</button>
+        </section>
         <label class="field">
           <span data-i18n="project">项目</span>
           <select id="projectSelect"></select>

@@ -2,13 +2,17 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
 const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, reslash } = require("../project_store");
 const { syncFrameAudio, syncGodotProject } = require("../godot_sync");
+const { checkForUpdates, performUpdate } = require("../updater");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const PUBLIC = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT || 5179);
 const projectStore = createProjectStore(ROOT);
+const UPDATE_TOKEN = crypto.randomBytes(24).toString("hex");
+let restartScheduled = false;
 
 const DEFAULT_SUPPORTS = [
   "character_transform",
@@ -1038,6 +1042,30 @@ function projectsResponse() {
   };
 }
 
+function scheduleServerRestart() {
+  if (restartScheduled) return;
+  restartScheduled = true;
+  const timer = setTimeout(() => {
+    server.close(() => {
+      const child = spawn(process.execPath, [__filename], {
+        cwd: ROOT,
+        env: { ...process.env, PORT: String(PORT) },
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+      process.exit(0);
+    });
+    if (typeof server.closeIdleConnections === "function") server.closeIdleConnections();
+    const forceClose = setTimeout(() => {
+      if (typeof server.closeAllConnections === "function") server.closeAllConnections();
+    }, 2500);
+    forceClose.unref();
+  }, 600);
+  timer.unref();
+}
+
 function serveStatic(req, res, pathname) {
   const requestPath = pathname === "/" ? "index.html" : pathname.slice(1);
   const full = safeResolve(PUBLIC, requestPath);
@@ -1054,6 +1082,20 @@ ensureDataFiles();
 const server = http.createServer(async (req, res) => {
   try {
     const parsed = new URL(req.url, "http://127.0.0.1");
+    if (req.method === "GET" && parsed.pathname === "/api/update-status") {
+      return send(res, 200, { ...checkForUpdates(ROOT), token: UPDATE_TOKEN, restarting: restartScheduled });
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/update") {
+      if (req.headers["x-xsxb-update-token"] !== UPDATE_TOKEN) {
+        return send(res, 403, { error: "Invalid update token." });
+      }
+      if (restartScheduled) return send(res, 409, { error: "A tuner restart is already scheduled." });
+      const update = performUpdate(ROOT);
+      res.setHeader("connection", "close");
+      send(res, 200, { ok: true, update });
+      scheduleServerRestart();
+      return;
+    }
     if (req.method === "GET" && parsed.pathname === "/api/projects") {
       return send(res, 200, projectsResponse());
     }

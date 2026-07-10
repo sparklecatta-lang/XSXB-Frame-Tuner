@@ -144,6 +144,54 @@ body.theme-dark {
   box-shadow: 3px 3px 0 var(--line);
 }
 
+.updatePanel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 3px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255, 212, 61, .24), rgba(57, 217, 186, .16));
+  box-shadow: 3px 3px 0 var(--line);
+}
+
+.updateHeading {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.updateVersion {
+  color: var(--muted);
+  font-family: var(--data-font);
+  font-size: 11px;
+}
+
+.updateMessage {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+button.updateButton {
+  width: 100%;
+  background: var(--accent-3);
+  color: #05070a;
+  border-color: var(--line);
+  box-shadow: 2px 2px 0 var(--line);
+}
+
+.updatePanel.isUpdating {
+  animation: updatePulse 1s steps(2, end) infinite;
+}
+
+@keyframes updatePulse {
+  50% { filter: brightness(1.16); }
+}
+
 h1, h2, p { margin: 0; }
 h1 {
   color: var(--ink);

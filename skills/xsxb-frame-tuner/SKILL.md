@@ -107,6 +107,8 @@ Start the tuner:
 $env:PORT="5179"; node "<tuner_root>\tools\animation_tuner\server.js"
 ```
 
+The web tuner checks the official GitHub `main` branch once when the page opens. When an update is available, its update button fast-forwards the clean local clone, atomically replaces the installed `xsxb-frame-tuner` skill with the bundled copy, restarts the local server, and reconnects the page. Never work around an update block caused by an untrusted remote, a non-`main` branch, or tracked local changes; preserve the user's work and resolve that condition explicitly.
+
 ## Non-Negotiable Data Rules
 
 - Keep every Godot project isolated by exact project root.
