@@ -44,6 +44,7 @@ function candidateSkillTargets(env = process.env, home = os.homedir()) {
 
 function resolveSkillTarget(env = process.env, home = os.homedir()) {
   const candidates = candidateSkillTargets(env, home);
+  if (env.CODEX_HOME && candidates.length) return candidates[0];
   const existing = candidates.find((entry) => fs.existsSync(entry));
   if (existing) return existing;
   if (!candidates.length) throw new Error("Cannot resolve the user skill directory.");

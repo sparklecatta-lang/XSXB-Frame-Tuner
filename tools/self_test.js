@@ -5,7 +5,7 @@ const path = require("node:path");
 const { animationLooksAttack, hitboxEnabledByDefault } = require("./box_estimator");
 const { parseBatchArgs } = require("./import_batch");
 const { runtimeScript } = require("./godot_runtime");
-const { candidateSkillTargets, syncSkillDirectory, trustedRemote } = require("./updater");
+const { candidateSkillTargets, resolveSkillTarget, syncSkillDirectory, trustedRemote } = require("./updater");
 
 assert.equal(animationLooksAttack("stand_attack"), true);
 assert.equal(animationLooksAttack("站立攻击"), true);
@@ -50,6 +50,9 @@ assert.equal(trustedRemote("https://github.com/example/XSXB-Frame-Tuner.git"), f
 assert.equal(trustedRemote("https://evilgithub.com/sparklecatta-lang/XSXB-Frame-Tuner.git"), false);
 const candidates = candidateSkillTargets({ USERPROFILE: "C:\\Users\\demo" }, "C:\\Users\\fallback");
 assert.equal(candidates[0], path.resolve("C:\\Users\\demo", ".codex", "skills", "xsxb-frame-tuner"));
+const customCandidates = candidateSkillTargets({ CODEX_HOME: "D:\\Codex", USERPROFILE: "C:\\Users\\demo" }, "C:\\Users\\fallback");
+assert.equal(customCandidates[0], path.resolve("D:\\Codex", "skills", "xsxb-frame-tuner"));
+assert.equal(resolveSkillTarget({ CODEX_HOME: "D:\\Codex", USERPROFILE: "C:\\Users\\demo" }), customCandidates[0]);
 
 const updateTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xsxb-updater-test-"));
 try {
