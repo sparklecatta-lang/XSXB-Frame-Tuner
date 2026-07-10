@@ -1,4 +1,4 @@
 interface:
   display_name: "XSXB Frame Tuner"
-  short_description: "Add characters and animations to Godot via XSXB."
-  default_prompt: "Use $xsxb-frame-tuner to add a character or wire a new animation into my Godot game."
+  short_description: "Batch-import playable Godot frame animations."
+  default_prompt: "Use $xsxb-frame-tuner to batch-import these animation folders and fully wire the character into my Godot game."

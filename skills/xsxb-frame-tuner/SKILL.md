@@ -1,132 +1,149 @@
 ---
 name: xsxb-frame-tuner
-description: Add or wire Godot game characters and frame animations through XSXB Frame Tuner. Use when the user asks to add a character, add an animation/action, import PNG frame sequences or SpriteFrames, connect an actor to a Godot runtime, make tuner/game playback WYSIWYG, tune frame boxes/SFX/attachments, or says 添加角色, 添加动画, 新动作, 接入角色, 接入 tuner, 接入 XSXB, 帧动画调参.
+description: Batch-import one or many PNG frame folders or Godot SpriteFrames into XSXB Frame Tuner and wire a complete playable Godot runtime with saved hit/hurt/collision boxes, frame timing, SFX, image attachments, scene scale, facing, and WYSIWYG transforms. Use when the user asks to add a character, add or replace one or many animations/actions, import frame sequences, connect gameplay to XSXB, tune boxes/SFX/attachments, or says 添加角色, 批量添加动画, 一句话导入多组动画, 新动作, 接入角色, 接入 tuner, 接入 XSXB, 帧动画调参, 碰撞框, 音效, 附加帧, 场景系数.
 ---
 
 # XSXB Frame Tuner
 
-Use this skill to connect frame-based Godot characters to XSXB Frame Tuner, import or replace animations, and keep the tuner preview and Godot runtime on the same data.
+Deliver the complete user-visible result from a natural-language request. Do not require the user to run importer commands or enumerate internal data files.
 
-## Core Contract
+## Required References
 
-Keep visual playback, boxes, frame timing, SFX, and image attachments data-driven from the same XSXB files.
+For every actor import, animation import, replacement, or gameplay wiring task, read all three references before editing:
 
-```text
-final scale = Character Base * Group Base * Frame Base
-final offset = Character Base offset + Group Base offset + Frame Base offset
-final rotation = Character Base rotation + Group Base rotation + Frame Base rotation
-```
+- [references/import-contract.md](references/import-contract.md) for batch grouping, project isolation, anchors, initial scale, and box generation.
+- [references/runtime-contract.md](references/runtime-contract.md) for gameplay wiring, playback, SFX, image attachments, scene scale, facing, and box transforms.
+- [references/validation.md](references/validation.md) for completion gates and commands.
 
-- Character Base is actor/profile-wide scale, offset, and rotation.
-- Group Base is animation/action-level scale, offset, rotation, and timing.
-- Frame Base is per-frame visual overrides, disabled state, timing, and boxes.
-- Do not hide mismatches with runtime-only offsets, runtime-only scale constants, or one-off preview corrections.
+When modifying the tuner web UI or save payload, also read [references/ui-contract.md](references/ui-contract.md).
+
+## Completion Contract
+
+Treat a request such as “add these animation folders to this character” as authorization to complete the entire in-scope local integration. Unless the user explicitly asks for tuner-only import, success requires all of the following:
+
+1. Import every requested animation into one correctly bound XSXB project and profile.
+2. Copy every frame into stable tuner-local and Godot-local asset paths.
+3. Save `hurtbox` and `collisionbox` for every actor frame; save `hitbox` for every attack-like frame entry with plausible active-frame enablement.
+4. Visually inspect representative frames from every animation group and correct heuristic boxes that include weapons, VFX, tails, cloth, empty canvas, or alpha noise as body mass.
+5. Generate or refresh the complete Godot runtime, including playback, boxes, SFX, image attachments, duration, facing, and scene-scale interfaces.
+6. Connect at least one actual gameplay scene or gameplay actor to the generated runtime. The generated runtime test scene alone does not count.
+7. Keep tuner preview, saved data, and Godot playback on the same Character/Group/Frame transform and timing data.
+8. Run deterministic validation and relevant Godot checks. Treat warnings as incomplete work, not success.
+9. Start the tuner only after import, sync, gameplay wiring, and validation succeed.
+
+Do not silently downgrade to “frames copied” or “runtime generated.” Report a partial result only when a concrete blocker remains.
 
 ## Locate the Tool
 
-Resolve the XSXB Frame Tuner root before editing or importing:
+Resolve the XSXB Frame Tuner root in this order:
 
-1. If the current workspace contains `tools/animation_tuner/server.js`, use the current workspace.
-2. If the user gives a tuner root, use it.
-3. If the tool is missing, clone or ask the user to clone `https://github.com/sparklecatta-lang/XSXB-Frame-Tuner`, then use that clone as the tuner root.
+1. Use the current workspace when it contains `tools/animation_tuner/server.js`.
+2. Use a tuner root explicitly supplied by the user.
+3. Locate an existing clone of `https://github.com/sparklecatta-lang/XSXB-Frame-Tuner`.
+4. If no clone exists and local cloning is within the request's authority, clone it to a stable user-selected tools directory. Ask only when the destination materially matters.
 
-Do not hard-code personal machine paths. Store project-specific data only under the selected tuner root and the target Godot project.
+Never hard-code personal machine paths. Store project bindings in `data/projects.json`, not in this skill.
 
-## Data Isolation
+## Resolve the Request
 
-Treat every Godot project as a separate XSXB project unless the existing XSXB project entry is already bound to the exact same Godot project root.
+Infer safe inputs from the request and project before asking questions:
 
-- Never import a real Godot project into a generic/default placeholder.
-- Do not copy numeric tuning, box values, scene scale, profile IDs, or project IDs from another game unless the user explicitly asks to clone that project.
-- When replacing a whole animation, remove stale overrides for that animation unless the user asks to preserve existing tuning.
-- Keep source frame assets in stable project folders, not Downloads or temp paths.
+- target Godot project root
+- new or existing XSXB profile
+- one or many animation folders or `.spriteframes.tres` resources
+- animation IDs, labels, FPS, actor/VFX type, and replacement intent
+- gameplay actor/scene that must consume the runtime
+
+Ask only when guessing could bind the wrong Godot project, overwrite a tuned animation, or change gameplay semantics. Multiple animation paths in one message are one batch, not separate future tasks.
 
 ## Required Workflow
 
-1. Inspect the target Godot project and source frames before editing. Find existing SpriteFrames, character scenes, runtime scripts, manifests, tuning files, and relevant tests.
-2. Select or create the correct XSXB project. If a Godot root is provided, bind the XSXB project to that root.
-3. Decide whether the request is a new character/profile, a new animation on an existing profile, or a replacement animation.
-4. Import frames into the selected XSXB project and, when bound to Godot, sync the same assets and data into `res://xsxb_frame_tuner/`.
-5. Create or preserve tuning data across all needed layers: Character Base, Group Base, and Frame Base.
-6. Add rough saved boxes for actor frames. Living actors need `hurtbox` and `collisionbox`; attack-like actions also need `hitbox`.
-7. Wire or refresh the Godot runtime so it reads the same manifest, tuning, playback overrides, frame audio bindings, and image attachments that the tuner saves.
-8. Validate with focused checks before reporting success.
-9. Start the tuner only after import/sync succeeds. If it is already open, tell the user to refresh the animation list.
+1. Inspect the Godot project, source folders, representative frames, existing XSXB registry, manifests, tuning, gameplay scenes/scripts, and tests.
+2. Select or create one XSXB project bound to the exact target Godot root. Never reuse an ID bound to another project.
+3. Select or create one profile for the character. Preserve existing profile and animation IDs when tuning already exists.
+4. Import all requested groups:
+   - Use `tools/import_batch.js` for two or more PNG folders.
+   - Use `tools/import_frames.js` for one PNG folder.
+   - Use `tools/import_spriteframes.js --all` for a Godot project or SpriteFrames batch.
+5. Confirm imported group count, animation IDs, per-group frame counts, FPS, anchor modes, and game-local frame paths.
+6. Perform per-group visual QA. Inspect at least one representative neutral/movement frame and every materially different attack/action phase. Correct saved boxes when the heuristic result is not playable.
+7. Inspect source facing from an upright frame and set gameplay-facing behavior accordingly. Do not infer facing from filenames.
+8. Wire the generated XSXB actor into actual gameplay. Route animation state, action duration, collision, hit/hurt queries, movement scale, SFX, and attachments through runtime interfaces.
+9. Run `tools/validate_import.js` with `--require-gameplay --strict`, then run available Godot headless/smoke checks.
+10. Start or reuse the tuner server. If already open, tell the user to refresh the animation list.
 
-## Internal Commands
+## Agent-Facing Commands
 
-Use commands from the resolved tuner root. These are agent-facing helpers, not the primary user workflow.
+Run commands from the resolved tuner root. For several PNG groups, place global options before the first `--animation` block:
 
 ```powershell
-node "<tuner_root>\tools\import_frames.js" --project <xsxb_project_id> --project-root <godot_project_root> --profile <profile_id> --animation <animation_id> --source <png_folder> --fps <fps> --replace
+node "<tuner_root>\tools\import_batch.js" --project-root "<godot_project_root>" --project <xsxb_project_id> --profile <profile_id> --label "<character_label>" --replace `
+  --animation idle --source "<idle_png_folder>" --fps 12 `
+  --animation run --source "<run_png_folder>" --fps 12 `
+  --animation stand_attack --source "<attack_png_folder>" --fps 12
 ```
 
+For one PNG group:
+
 ```powershell
-node "<tuner_root>\tools\import_spriteframes.js" --project-root <godot_project_root> --project <xsxb_project_id> --all
+node "<tuner_root>\tools\import_frames.js" --project <xsxb_project_id> --project-root "<godot_project_root>" --profile <profile_id> --animation <animation_id> --source "<png_folder>" --fps <fps> --replace
 ```
+
+For SpriteFrames:
+
+```powershell
+node "<tuner_root>\tools\import_spriteframes.js" --project-root "<godot_project_root>" --project <xsxb_project_id> --all
+```
+
+Validate the complete integration:
+
+```powershell
+node "<tuner_root>\tools\validate_import.js" --project <xsxb_project_id> --project-root "<godot_project_root>" --require-gameplay --strict
+```
+
+Start the tuner:
 
 ```powershell
 $env:PORT="5179"; node "<tuner_root>\tools\animation_tuner\server.js"
 ```
 
-## Box Rules
+## Non-Negotiable Data Rules
 
-- `hurtbox` is the actor's vulnerable body area. Fit the body mass, not weapons, large VFX, or loose cloth silhouettes.
-- `hitbox` is the active attack/guard/projectile area. Add it by default only for attack-like animations such as `stand_attack`, `run_attack`, `jump_attack`, `air_attack`, parry, counter, skill, or projectile launch.
-- `collisionbox` is the grounded physical footprint. Keep its bottom edge on the floor line and store its Y offset as `-height / 2`.
-- Box offsets are gameplay data, not sprite alignment data. Runtime visuals must not use `collisionbox`, `hurtbox`, `hitbox`, `collision_offset`, or box offsets to position the sprite.
-- Estimate boxes per animation group from that group's own source canvas and anchor. Do not reuse another group's canvas, scale, or offsets as numeric truth.
+- Keep every Godot project isolated by exact project root.
+- Keep source assets in stable folders; never leave runtime paths pointing to Downloads or temp directories.
+- Preserve tuned data when adding a new animation. Remove stale animation-prefixed overrides only when replacing that whole animation.
+- Use `canvas_bottom_center` for grounded actors unless the existing project intentionally uses another authored anchor.
+- Keep collision, hit, and hurt boxes as local gameplay data. Never use box offsets to position the sprite.
+- Apply Character, Group, Frame, facing, and scene scale to visuals and boxes through the same outer transform.
+- Keep frame SFX and image-attachment support present even when their binding files are empty at import time.
+- Keep action timing derived from XSXB playback data; fixed timing constants are fallback-only.
 
-## Playback, SFX, and Attachments
+## Validation Summary
 
-- Runtime playback must respect group timing overrides from `frame_playback_overrides["<profile>/<animation>:__group"]`.
-- Repeated calls to play the same looping animation must not reset to frame 0. Add an explicit restart path for one-shot actions.
-- Frame SFX support is mandatory for imported actor runtimes, even if `frame_audio_bindings.json` is empty at import time.
-- Frame image attachment support is mandatory for imported actor runtimes, even if `frame_image_attachments.json` is empty at import time.
-- Runtime lookup for SFX and attachments must accept stable keys like `<profile>/<animation>:<source_frame_index>` or top-level `animation` plus `frame`; do not depend only on full source-heavy paths.
+Before reporting success, verify at minimum:
 
-## Runtime Rules
+- requested animation count and total frame count match the sources
+- standalone and game-local manifests match by profile, animation, and frame count
+- every actor frame has valid saved hurtbox and collisionbox data
+- every attack-like frame entry has saved hitbox data and visually plausible active frames
+- tuner and runtime scale boxes proportionally at Character, Group, Frame, and scene levels
+- game-local audio and attachment bindings use stable `<profile>/<animation>:<frame>` keys and `res://` assets
+- runtime plays SFX once per frame entry and can replay it on later loop visits
+- image attachments inherit owner transform, facing, scene scale, and layer order
+- gameplay uses runtime animation duration, scene scale, collisionbox, hitbox, and hurtbox interfaces where applicable
+- an actual gameplay scene uses the generated actor
+- `/api/config?project=<id>` and `validate_import.js --strict` report no warnings
 
-- Godot runtime files should read game-local data from `res://xsxb_frame_tuner/`, not from the standalone tuner directory.
-- Save from the tuner is the synchronization point. After Save, the Godot project should have the same manifest, tuning, frame audio bindings, image attachments, copied frame assets, copied audio, copied attachment images, and runtime support.
-- Scene scale belongs in `scene_settings` and must multiply visuals, boxes, and runtime-controlled movement values. Do not bake scene scale into per-frame tuning.
-- When horizontally flipping a character, mirror visual X offset, source-anchor displacement, box X offsets, and rotation by the facing sign.
-- Godot 4 scripts should use explicit types for loaded textures, resources, and audio streams. Avoid risky inferred loads such as `var texture := load(path)`.
-
-## Validation
-
-Run the smallest relevant checks first:
-
-```powershell
-node --check "<tuner_root>\tools\animation_tuner\server.js"
-node --check "<tuner_root>\tools\animation_tuner\public\app.js"
-node --check "<tuner_root>\tools\import_frames.js"
-node --check "<tuner_root>\tools\import_spriteframes.js"
-node --check "<tuner_root>\tools\godot_sync.js"
-node --check "<tuner_root>\tools\godot_runtime.js"
-```
-
-For a Godot import/sync, also verify:
-
-- standalone and game-local manifests have matching profiles, animation IDs, and frame counts
-- every game-local frame path exists under the Godot project
-- imported actor frames have saved `hurtbox` and `collisionbox` entries
-- attack-like animations have saved `hitbox` entries
-- tuner `/api/config?project=<xsxb_project_id>` loads without runtime-interface warnings
-- at least one gameplay scene instantiates or extends the generated XSXB runtime actor when gameplay wiring is part of the request
-- runtime visual alignment does not depend on box offsets
-- repeated play calls for the current looping animation advance frames instead of resetting
-- SFX and image attachment readers exist even when their binding files are currently empty
-
-If Godot is unavailable, report which static checks passed and which runtime checks could not be executed.
+If Godot cannot run, state exactly which runtime checks remain unverified.
 
 ## Final Response
 
-Report only what matters:
+Report:
 
-- copied/imported frame destination and count
-- manifest, tuning, runtime, SFX, and attachment files changed
-- validation commands that passed
-- what remains adjustable in XSXB Frame Tuner
+- imported profile, animation IDs, per-group counts, and total frame count
+- tuner-local and Godot-local destinations
+- manifest, tuning, runtime, SFX, attachment, and gameplay files changed
+- deterministic and Godot validation that passed
+- any remaining manual artistic box tuning
 
-If something could not be verified, say so plainly.
+Do not present internal scripts as work the user still needs to perform.

@@ -968,4 +968,5 @@ function ensureGodotRuntime(root, project, options = {}) {
 
 module.exports = {
   ensureGodotRuntime,
+  runtimeScript,
 };

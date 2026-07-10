@@ -242,7 +242,8 @@ function opaqueBoundsForPng(filePath) {
 
 function animationLooksAttack(animationId, animationName = "") {
   const text = `${animationId} ${animationName}`.toLowerCase();
-  if (/(^|[\s_-])(attack|atk|slash|strike|shoot|shot|fire|skill|cast|stab|punch|kick|bite|claw|parry|counter)(?=$|[\s_-]|\d)/.test(text)) {
+  if (/(^|[\s_-])(attack|atk|slash|strike|shoot|shot|fire|skill|cast|stab|punch|kick|bite|claw|parry|counter)(?=$|[\s_-]|\d)/.test(text)
+    || /(攻击|攻擊|斩|斬|劈|刺|射击|射擊|技能|格挡|格擋|招架|反击|反擊|砍)/.test(text)) {
     return true;
   }
   return false;
@@ -410,10 +411,12 @@ function upsertEstimatedFrameBoxes(tuning, profileId, animation, frameFiles, opt
 }
 
 module.exports = {
+  animationLooksAttack,
   clearAnimationBoxOverrides,
   estimateFrameBoxes,
   frameBoxKey,
   groupCanvasForFrameFiles,
+  hitboxEnabledByDefault,
   opaqueBoundsForPng,
   upsertEstimatedFrameBoxes,
 };
