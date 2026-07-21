@@ -5,6 +5,23 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, reslash } = require("../project_store");
 const { syncFrameAudio, syncGodotProject } = require("../godot_sync");
+const {
+  EMPTY_ATTACK_TRAILS,
+  normalizeAttackTrails,
+  pngInfo,
+  saveAttackTrailTexture,
+  validateAttackTrails,
+} = require("../attack_trails");
+const { profileIdsForSceneText } = require("../scene_profiles");
+const {
+  ATLAS_HEIGHT_V2,
+  clearExportedPetTuning,
+  ensureCodexPetsProject,
+  exportCodexPet,
+  importCodexPet,
+  parseWebpSize,
+  syncCodexPetProject,
+} = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -36,7 +53,7 @@ const SCENE_SKIP_DIRS = new Set([
 ]);
 
 function ensureDataFiles() {
-  projectStore.readRegistry();
+  ensureCodexPetsProject(projectStore);
 }
 
 function send(res, status, body, contentType = "application/json") {
@@ -175,6 +192,7 @@ function normalizeManifest(raw) {
       bodyScale: Math.max(0.001, Number(profile.bodyScale ?? 1)),
       runtimeScale: Math.max(0.001, Number(profile.runtimeScale ?? 1)),
       supports: Array.isArray(profile.supports) ? profile.supports : DEFAULT_SUPPORTS,
+      pet: profile.pet && typeof profile.pet === "object" ? profile.pet : null,
       animations: Array.isArray(profile.animations) ? profile.animations : [],
     })),
   };
@@ -226,6 +244,12 @@ function readFrameAudioBindings(project) {
   return [];
 }
 
+function readAttackTrails(project) {
+  if (project?.kind === "codex_pets") return EMPTY_ATTACK_TRAILS;
+  projectStore.ensureProjectFiles(project);
+  return normalizeAttackTrails(projectStore.readJson(projectStore.projectPaths(project).attackTrails, EMPTY_ATTACK_TRAILS));
+}
+
 function readFrameImageAttachments(project) {
   projectStore.ensureProjectFiles(project);
   const raw = projectStore.readJson(projectStore.projectPaths(project).frameImageAttachments, []);
@@ -252,6 +276,7 @@ function profileForClient(profile) {
     scale_semantic: "character_group_frame",
     anchor_mode: "manifest_anchor_mode",
     supports: profile.supports,
+    pet: profile.pet,
   };
 }
 
@@ -266,6 +291,15 @@ function frameForClient(frame, index) {
     duration: Number(frame.duration || 1),
     width: Number(frame.width || size.width || 0),
     height: Number(frame.height || size.height || 0),
+    crop: frame.crop && typeof frame.crop === "object" ? {
+      x: Number(frame.crop.x || 0),
+      y: Number(frame.crop.y || 0),
+      width: Number(frame.crop.width || frame.width || 0),
+      height: Number(frame.crop.height || frame.height || 0),
+      sheetWidth: Number(frame.crop.sheetWidth || 0),
+      sheetHeight: Number(frame.crop.sheetHeight || 0),
+    } : null,
+    assetVersion: String(frame.assetVersion || ""),
   };
 }
 
@@ -292,6 +326,7 @@ function buildGroups(manifest, tuningFile) {
         profileId: profile.id,
         profileLabel: profile.label,
         profileKind: profile.kind,
+        profilePet: profile.pet,
         profileScaleSemantic: "character_group_frame",
         profileAnchorMode: String(animation.anchorMode || "canvas_bottom_center"),
         profileSupports: Array.isArray(animation.supports) ? animation.supports : profile.supports,
@@ -388,7 +423,7 @@ function isGeneratedTunerScene(scenePath) {
   return normalized.startsWith("xsxb_frame_tuner/runtime/");
 }
 
-function listSceneFiles(projectRoot) {
+function listSceneFiles(projectRoot, profiles = []) {
   const root = projectRoot ? path.resolve(String(projectRoot)) : "";
   const scenes = [];
   if (!root || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) return scenes;
@@ -409,10 +444,17 @@ function listSceneFiles(projectRoot) {
       if (!entry.isFile() || path.extname(entry.name).toLowerCase() !== ".tscn") continue;
       const scenePath = relativeProjectPath(fullPath, root);
       if (isGeneratedTunerScene(scenePath)) continue;
+      let sceneText = "";
+      try {
+        sceneText = fs.readFileSync(fullPath, "utf8");
+      } catch {
+        sceneText = "";
+      }
       scenes.push({
         id: `res://${scenePath}`,
         label: path.basename(entry.name, ".tscn"),
         path: scenePath,
+        profileIds: profileIdsForSceneText(sceneText, profiles),
       });
     }
   };
@@ -812,8 +854,24 @@ function validateGameLocalBindingKeys(project) {
 }
 
 function validateProject(project, manifest) {
+  if (project?.kind === "codex_pets") {
+    const warnings = [...validateManifest(manifest)];
+    for (const profile of manifest.profiles || []) {
+      const firstFrame = (profile.animations || []).flatMap((animation) => animation.frames || [])[0];
+      const fullPath = safeResolve(ROOT, reslash(firstFrame?.path || ""));
+      if (!fullPath || !fs.existsSync(fullPath)) continue;
+      const size = parseWebpSize(fs.readFileSync(fullPath));
+      if (size.width !== 1536 || ![1872, ATLAS_HEIGHT_V2].includes(size.height)) {
+        warnings.push(`${profile.id}: Codex 宠物图集应为 1536x1872 (v1) 或 1536x2288 (v2)，当前是 ${size.width}x${size.height}。`);
+      }
+      const expectedAnimations = size.height === ATLAS_HEIGHT_V2 ? 10 : 9;
+      if ((profile.animations || []).length !== expectedAnimations) warnings.push(`${profile.id}: Codex 宠物动画组数量不完整。`);
+    }
+    return warnings;
+  }
   return [
     ...validateManifest(manifest),
+    ...validateAttackTrails(readAttackTrails(project), manifest),
     ...validateCharacterScaleValues(project, manifest),
     ...validateGdscriptTypeInference(project?.projectRoot),
     ...validateRuntimeBindingReaders(project, manifest),
@@ -901,10 +959,13 @@ function configResponse(projectId) {
       groups: [],
     };
   }
+  const codexPets = project.kind === "codex_pets"
+    ? syncCodexPetProject(ROOT, projectStore, project)
+    : { warnings: [] };
   const manifest = readManifest(project);
   const tuningFile = readTuningFile(project);
   const groups = buildGroups(manifest, tuningFile);
-  const warnings = validateProject(project, manifest);
+  const warnings = [...codexPets.warnings, ...validateProject(project, manifest)];
   if (!groups.length) {
     warnings.unshift("当前项目没有已导入的动画组。请先用 skill/import_frames/import_spriteframes 导入 PNG 序列或 SpriteFrames。");
   }
@@ -917,10 +978,11 @@ function configResponse(projectId) {
     activeProjectId: project.id,
     activeProject: projectClient,
     projects: registry.projects.map(projectStore.projectForClient),
-    scenes: listSceneFiles(project.projectRoot),
+    scenes: project.kind === "codex_pets" ? [] : listSceneFiles(project.projectRoot, manifest.profiles),
     profiles: manifest.profiles.map(profileForClient),
     frameAudioBindings: readFrameAudioBindings(project),
     frameImageAttachments: readFrameImageAttachments(project),
+    attackTrails: project.kind === "codex_pets" ? EMPTY_ATTACK_TRAILS : readAttackTrails(project),
     tuning: tuningForClient(tuningFile),
     tuningDefaults: {},
     bossTuning: {},
@@ -942,6 +1004,7 @@ function configResponse(projectId) {
       playerFloorTopOffsetY: 0,
       bossFloorTopOffsetY: 0,
     },
+    projectKind: project.kind || "godot",
     groups,
   };
 }
@@ -992,6 +1055,27 @@ function saveFrameAudioBindings(payload, project) {
   const usableBindings = bindings.filter((entry) => entry.data || entry.path || entry.file);
   projectStore.writeJson(projectStore.projectPaths(project).frameAudio, usableBindings);
   return usableBindings;
+}
+
+function saveAttackTrails(payload, project) {
+  if (project?.kind === "codex_pets") return EMPTY_ATTACK_TRAILS;
+  const trails = normalizeAttackTrails(payload);
+  for (const [key, segments] of Object.entries(trails.bindings)) {
+    for (const segment of segments) {
+      const texturePath = safeResolve(ROOT, segment.texture?.path || "");
+      if (texturePath && fs.existsSync(texturePath)) {
+        const info = pngInfo(fs.readFileSync(texturePath));
+        segment.texture.width = info.width;
+        segment.texture.height = info.height;
+        segment.texture.hasEffectiveAlpha = info.hasEffectiveAlpha;
+      }
+      if (segment.colorMode === "original" && !segment.texture?.hasEffectiveAlpha) {
+        throw new Error(`${key}/${segment.id}: 使用贴图原色需要带有效 Alpha 的透明 RGBA PNG。`);
+      }
+    }
+  }
+  projectStore.writeJson(projectStore.projectPaths(project).attackTrails, trails);
+  return trails;
 }
 
 function saveFrameAttachmentImage(payload, project) {
@@ -1117,6 +1201,13 @@ const server = http.createServer(async (req, res) => {
         projects: registry.projects.map(projectStore.projectForClient),
       });
     }
+    if (req.method === "POST" && parsed.pathname === "/api/codex-pets/import") {
+      const payload = JSON.parse(await readBody(req));
+      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      const imported = importCodexPet(project, payload);
+      syncCodexPetProject(ROOT, projectStore, project);
+      return send(res, 200, { ok: true, imported });
+    }
     if (req.method === "GET" && parsed.pathname === "/api/config") {
       return send(res, 200, configResponse(parsed.searchParams.get("project")));
     }
@@ -1132,18 +1223,37 @@ const server = http.createServer(async (req, res) => {
       if (Array.isArray(payload.frame_image_attachments) || Array.isArray(payload.frameImageAttachments)) {
         frameImageAttachments = saveFrameImageAttachments(payload.frame_image_attachments || payload.frameImageAttachments, project);
       }
-      const godotSync = syncGodotProject(ROOT, projectStore, project, {
+      const attackTrails = project.kind === "codex_pets"
+        ? EMPTY_ATTACK_TRAILS
+        : saveAttackTrails(payload.attack_trails || payload.attackTrails || EMPTY_ATTACK_TRAILS, project);
+      const codexPetExports = [];
+      if (project.kind === "codex_pets") {
+        for (const entry of Array.isArray(payload.codex_pet_exports) ? payload.codex_pet_exports : []) {
+          codexPetExports.push(exportCodexPet(projectStore, project, entry));
+        }
+        clearExportedPetTuning(projectStore, project, codexPetExports.map((entry) => entry.profileId));
+        syncCodexPetProject(ROOT, projectStore, project);
+      }
+      const godotSync = project.kind === "codex_pets" ? null : syncGodotProject(ROOT, projectStore, project, {
         ...(frameAudioBindings ? { frameAudioBindings } : {}),
         ...(frameImageAttachments ? { frameImageAttachments } : {}),
+        attackTrails,
       });
-      const runtimeProjectIdFiles = syncGodotRuntimeProjectId(project);
+      const runtimeProjectIdFiles = project.kind === "codex_pets" ? [] : syncGodotRuntimeProjectId(project);
       return send(res, 200, {
         ok: true,
         tuning: tuningForClient(readTuningFile(project)),
         godotSync,
         runtimeProjectIdFiles,
+        codexPetExports,
         warnings: validateProject(project, readManifest(project)),
       });
+    }
+    if (req.method === "POST" && parsed.pathname === "/api/attack-trail-texture") {
+      const payload = JSON.parse(await readBody(req));
+      const { project } = projectFromRequest(payload.projectId || parsed.searchParams.get("project"));
+      if (project?.kind === "codex_pets") return send(res, 400, { error: "Codex Pets 项目不支持攻击拖尾。" });
+      return send(res, 200, { ok: true, texture: saveAttackTrailTexture(ROOT, projectStore, project, payload) });
     }
     if (req.method === "POST" && parsed.pathname === "/api/frame-audio") {
       const payload = JSON.parse(await readBody(req));

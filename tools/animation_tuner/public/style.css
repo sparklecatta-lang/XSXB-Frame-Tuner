@@ -14,12 +14,17 @@
   --control-bg: #fffaf0;
   --control-ink: #11151c;
   --control-muted: #4e5560;
-  --accent: #ff5a2d;
-  --accent-dark: #c63819;
+  --accent: #ff982e;
+  --accent-dark: #d86d12;
   --accent-2: #39d9ba;
-  --accent-3: #ffd43d;
-  --ok: #39d9ba;
-  --danger: #ff3d35;
+  --accent-3: var(--accent);
+  --ok: var(--accent-2);
+  --danger: #d63a48;
+  --danger-hover: #ad2633;
+  --danger-ink: #ffffff;
+  --layer-behind: #39baff;
+  --layer-front: var(--accent);
+  --on-bright: #05070a;
   --shadow: rgba(0, 0, 0, .62);
   --hard-shadow: 5px 5px 0 #05070a;
   --soft-shadow: 0 18px 36px rgba(0, 0, 0, .22);
@@ -62,6 +67,15 @@ body.theme-light {
   --control-bg: #ffffff;
   --control-ink: #11151c;
   --control-muted: #4e5560;
+  --accent: #e98522;
+  --accent-dark: #bd6417;
+  --accent-2: #24b99e;
+  --accent-3: var(--accent);
+  --ok: #178875;
+  --danger: #c82f3b;
+  --danger-hover: #a8222f;
+  --layer-behind: #2b8fd3;
+  --layer-front: var(--accent);
   --shadow: rgba(5, 7, 10, .22);
   --soft-shadow: 0 18px 32px rgba(5, 7, 10, .12);
   background:
@@ -151,7 +165,7 @@ body.theme-dark {
   padding: 12px;
   border: 3px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(135deg, rgba(255, 212, 61, .24), rgba(57, 217, 186, .16));
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
   box-shadow: 3px 3px 0 var(--line);
 }
 
@@ -179,7 +193,7 @@ body.theme-dark {
 button.updateButton {
   width: 100%;
   background: var(--accent-3);
-  color: #05070a;
+  color: var(--on-bright);
   border-color: var(--line);
   box-shadow: 2px 2px 0 var(--line);
 }
@@ -237,8 +251,8 @@ p, #hint, .status { color: var(--muted); font-size: 13px; }
 
 .languageButton.active {
   background: var(--accent-2);
-  border-color: var(--accent);
-  color: #05070a;
+  border-color: var(--line);
+  color: var(--on-bright);
 }
 
 .field, .number, .range, .toggle {
@@ -322,12 +336,12 @@ p, #hint, .status { color: var(--muted); font-size: 13px; }
 
 .toggle:has(input:checked) {
   background: var(--accent-2);
-  color: #05070a;
+  color: var(--on-bright);
 }
 
 .toggle:has(input:checked)::after {
   align-items: center;
-  background: #05070a;
+  background: var(--on-bright);
   border-radius: 4px;
   color: var(--accent-2);
   content: "✓";
@@ -463,7 +477,7 @@ p, #hint, .status { color: var(--muted); font-size: 13px; }
   border-color: var(--line);
   box-shadow: 3px 3px 0 var(--line);
   background: var(--accent-2);
-  color: #05070a;
+  color: var(--on-bright);
 }
 
 .boxChoice.disabled {
@@ -485,7 +499,7 @@ p, #hint, .status { color: var(--muted); font-size: 13px; }
 
 .toggle.compact:has(input:checked) {
   border-color: var(--line);
-  color: #05070a;
+  color: var(--on-bright);
   background: var(--accent-2);
 }
 
@@ -518,19 +532,19 @@ input[type="checkbox"] {
 }
 
 select:focus, input:focus, button:focus {
-  outline: 3px solid rgba(57, 217, 186, .52);
+  outline: 3px solid color-mix(in srgb, var(--accent-2) 55%, transparent);
   outline-offset: 2px;
 }
 
 button {
   cursor: pointer;
-  background: var(--surface);
+  background: var(--control-bg);
   border-color: var(--line);
 }
 
 button:hover { border-color: var(--accent); }
 button.secondary { background: var(--control-bg); border-color: var(--line); color: var(--control-ink); }
-button.active { background: var(--accent-2); color: #05070a; border-color: var(--line); }
+button.active { background: var(--accent-2); color: var(--on-bright); border-color: var(--line); }
 button.dangerActive { color: var(--danger); border-color: var(--danger); }
 .toggle.dangerActive { color: var(--danger); }
 button.save {
@@ -538,9 +552,8 @@ button.save {
   margin-top: 16px;
   background: var(--accent);
   border-color: var(--line);
-  color: #fffaf0;
+  color: var(--on-bright);
   font-weight: 950;
-  text-shadow: 2px 2px 0 rgba(0,0,0,.4);
   box-shadow: var(--hard-shadow);
 }
 
@@ -550,7 +563,7 @@ button:disabled {
 }
 
 .hasUnsavedChanges button.save {
-  box-shadow: var(--hard-shadow), 0 0 0 4px rgba(255, 212, 61, .28);
+  box-shadow: var(--hard-shadow), 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .panel {
@@ -589,7 +602,7 @@ button:disabled {
 
 .panel[open] summary::after {
   content: "-";
-  color: #05070a;
+  color: var(--on-bright);
   background: var(--accent-2);
 }
 
@@ -602,6 +615,15 @@ button:disabled {
 .projectActions {
   grid-template-columns: 1fr;
   margin: -4px 0 12px;
+}
+
+.projectActions.hasPetAction {
+  grid-template-columns: 1fr 1fr;
+}
+
+body.codexPetsProject [data-panel="scene-scale"],
+body.codexPetsProject [data-panel="boxes"] {
+  display: none;
 }
 
 .wide {
@@ -668,7 +690,7 @@ button:disabled {
 
 .themeButton.active {
   background: var(--accent-2);
-  color: #05070a;
+  color: var(--on-bright);
 }
 
 .canvasColorControl {
@@ -715,7 +737,7 @@ button:disabled {
 .playButton {
   width: 58px;
   background: var(--accent-3) !important;
-  color: #05070a !important;
+  color: var(--on-bright) !important;
   font: 950 13px/1 var(--ui-font);
 }
 
@@ -811,21 +833,30 @@ button:disabled {
   transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 
-.thumb.selected { background: var(--accent-2); color: #05070a; }
+.thumb.selected { background: var(--accent-2); color: var(--on-bright); }
 .thumb.primary { border-color: var(--line); box-shadow: 5px 5px 0 var(--accent); }
 .thumb.reference { box-shadow: 3px 3px 0 var(--accent-2); }
 .thumb.reference .thumbLabel::after { content: " ref"; color: var(--accent); }
 .thumb.chained { background: var(--panel-2); }
 .thumb.chained .thumbLabel { color: var(--muted); }
 .thumb.overridden .thumbLabel::after { content: " *"; color: var(--accent); }
-.thumb.disabled { opacity: .42; border-color: #5b2a1f; }
-.thumb.disabled img { filter: grayscale(1); }
+.thumb.disabled { opacity: .42; border-color: var(--danger); }
+.thumb.disabled img,
+.thumb.disabled .thumbSprite { filter: grayscale(1); }
 .thumb.disabled .thumbLabel::before { content: "OFF "; color: var(--danger); }
-.thumb.audioDragOver { border-color: #91d7ff; box-shadow: 0 0 0 2px rgba(145,215,255,.65) inset; background: rgba(23, 54, 72, .78); }
-.thumb.imageDragOver { border-color: #f2a23c; box-shadow: 0 0 0 2px rgba(242,162,60,.72) inset; background: rgba(64, 43, 18, .78); }
+.thumb.audioDragOver { border-color: var(--layer-behind); box-shadow: 0 0 0 2px color-mix(in srgb, var(--layer-behind) 65%, transparent) inset; background: color-mix(in srgb, var(--layer-behind) 22%, var(--panel)); }
+.thumb.imageDragOver { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 65%, transparent) inset; background: color-mix(in srgb, var(--accent) 22%, var(--panel)); }
 .thumb.layerDraggable { cursor: grab; }
 .thumb.layerCardDragging { opacity: .52; cursor: grabbing; }
 .thumb img { width: 100%; height: 78px; object-fit: contain; padding: 4px; }
+.thumbSprite {
+  display: block;
+  width: calc(100% - 8px);
+  height: 78px;
+  margin: 4px;
+  background-repeat: no-repeat;
+  background-color: transparent;
+}
 .thumbLabel {
   min-width: 0;
   font-size: 12px;
@@ -870,7 +901,7 @@ button:disabled {
   background: var(--accent-3);
   border: 2px solid var(--line);
   border-radius: 6px;
-  color: #05070a;
+  color: var(--on-bright);
   display: inline-grid;
   font-size: 13px;
   height: 23px;
@@ -887,7 +918,7 @@ button:disabled {
 
 .frameSfxBadge:hover,
 .frameSfxBadge:focus-visible {
-  background: #fff;
+  background: var(--control-bg);
   border-color: var(--danger);
   color: var(--danger);
   outline: 0;
@@ -950,7 +981,7 @@ button:disabled {
 .attachmentAction:hover,
 .attachmentAction:focus-visible {
   background: var(--accent-2);
-  color: #05070a;
+  color: var(--on-bright);
   outline: 0;
 }
 
@@ -961,6 +992,252 @@ button:disabled {
   margin-top: 10px;
   white-space: pre-wrap;
 }
+
+.attackTrailBody {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  min-width: 0;
+}
+.attackTrailBody *, .attackTrailBody *::before, .attackTrailBody *::after { box-sizing: border-box; }
+.attackTrailRow { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.attackTrailRow > * { min-width: 0; }
+.attackTrailRow > select { flex: 1; }
+.trailSegmentRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.trailSegmentRow button { padding-inline: 9px; }
+.trailStickActionRow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.trailStickActionRow button {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 3px;
+  font-size: 12px;
+  letter-spacing: -.02em;
+  white-space: nowrap;
+}
+.trailLayerToggle {
+  min-width: 0;
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+.trailLayerToggle.behind {
+  background: var(--layer-behind);
+  border-color: var(--line);
+  color: var(--on-bright);
+}
+.trailLayerToggle.front {
+  background: var(--layer-front);
+  border-color: var(--line);
+  color: var(--on-bright);
+}
+.compactTrailRow { flex-wrap: wrap; }
+.inlineTrailField { min-width: 0; }
+.attackTrailGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+.attackTrailGrid > button, .attackTrailGrid > .toggle { align-self: end; }
+.attackTrailGrid > .field, .attackTrailGrid > .number, .attackTrailGrid > .toggle { margin: 0; min-width: 0; }
+.attackTrailGrid .number { grid-template-columns: minmax(0, 1fr); gap: 5px; align-items: stretch; }
+.attackTrailGrid .number > span { font-size: 12px; overflow: visible; text-overflow: clip; }
+.attackTrailGrid input, .attackTrailGrid select, .attackTrailGrid button { min-width: 0; width: 100%; }
+.trailAppearanceGrid {
+  grid-template-areas:
+    "mode color"
+    "picker picker";
+  align-items: end;
+}
+.trailAppearanceGrid label:has(#attackTrailColorMode) { grid-area: mode; }
+.trailAppearanceGrid label:has(#attackTrailColor) { grid-area: color; }
+#attackTrailPickColor { grid-area: picker; width: 100%; }
+.trailAppearanceGrid input:disabled,
+.trailAppearanceGrid button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(.55);
+  opacity: .48;
+}
+.trailGradientEditor {
+  display: grid;
+  gap: 9px;
+  padding: 12px 10px 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+.trailGradientEditor[hidden] { display: none; }
+.trailGradientBar {
+  position: relative;
+  height: 30px;
+  margin: 7px 8px 4px;
+  border: 3px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 4px 4px 0 var(--shadow);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.trailGradientBar:focus-visible {
+  outline: 3px solid var(--accent-2);
+  outline-offset: 4px;
+}
+.trailGradientStop {
+  position: absolute;
+  top: 50%;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 40px;
+  padding: 0;
+  border: 3px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 2px 2px 0 var(--shadow);
+  transform: translate(-50%, -50%);
+  cursor: ew-resize;
+  z-index: 2;
+}
+.trailGradientStop:hover { transform: translate(-50%, -50%) scale(1.06); }
+.trailGradientStop.selected {
+  outline: 3px solid var(--accent-2);
+  outline-offset: 2px;
+  z-index: 3;
+}
+.trailGradientNodeRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 54px;
+  align-items: end;
+  gap: 8px;
+}
+.trailGradientColorField { margin: 0; }
+.trailGradientColorField input { width: 100%; }
+.trailGradientPosition {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border: 3px solid var(--line);
+  border-radius: 9px;
+  background: var(--control-bg);
+  box-shadow: 3px 3px 0 var(--shadow);
+  color: var(--control-ink);
+  font: 900 13px/1 var(--data-font);
+}
+.trailGradientHelp {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.trailMotionSettings {
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+.trailMotionSettings > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 9px 10px;
+  user-select: none;
+}
+.trailMotionSettings[open] > summary { color: var(--ink); border-bottom: 1px solid var(--line); }
+.trailMotionGrid { padding: 10px; }
+.trailSmoothnessHelp, .trailTransparencyHelp, .trailChaseHelp {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+.trailTextureBox, .trailStickBox {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  min-width: 0;
+}
+.trailTextureBox button, .trailStickBox button, .trailStickBox select { min-width: 0; width: 100%; }
+.trailLayerLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+.trailLayerLegend span::before {
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 8px;
+  margin-right: 5px;
+  width: 8px;
+}
+.trailLayerLegend .behind::before { background: var(--layer-behind); }
+.trailLayerLegend .front::before { background: var(--layer-front); }
+.trailTextureName, .trailTimingSummary, .trailDirectionHelp {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.trailTimingSummary { margin: 0; }
+.trailDirectionHelp { margin: 0; }
+.trailTexturePreview {
+  width: 100%;
+  height: 72px;
+  border: 1px solid var(--line);
+  background-color: rgba(128, 128, 128, .12);
+}
+.trailTexturePreview[hidden] { display: none; }
+.trailHeadCurveControl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+}
+.trailHeadCurveControl input { min-width: 0; width: 100%; }
+.trailHeadCurveControl output {
+  color: var(--accent-3);
+  font: 900 12px/1 var(--data-font);
+  text-align: right;
+}
+.trailHeadCurveHelp {
+  margin: -3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.dangerMini {
+  border-color: var(--line);
+  color: var(--danger-ink);
+  background: var(--danger);
+}
+.dangerMini:hover:not(:disabled) {
+  border-color: var(--line);
+  color: var(--danger-ink);
+  background: var(--danger-hover);
+}
+.dangerMini:disabled {
+  opacity: 1;
+  border-color: var(--line);
+  color: color-mix(in srgb, var(--danger) 70%, var(--control-ink));
+  background: color-mix(in srgb, var(--danger) 24%, var(--control-bg));
+}
+.accentButton, #attackTrailPickColor.active, #attackTrailReverse.active {
+  border-color: var(--line);
+  color: var(--on-bright);
+  background: var(--accent-2);
+}
+.codexPetsProject #attackTrailPanel { display: none !important; }
 
 @media (max-width: 960px) {
   .app { grid-template-columns: 1fr; }

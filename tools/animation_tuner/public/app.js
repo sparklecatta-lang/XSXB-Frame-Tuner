@@ -4,13 +4,16 @@ const els = {
   updateMessage: document.querySelector("#updateMessage"),
   updateButton: document.querySelector("#updateButton"),
   projectSelect: document.querySelector("#projectSelect"),
+  addCodexPet: document.querySelector("#addCodexPet"),
   refreshProject: document.querySelector("#refreshProject"),
   languageSelect: document.querySelector("#languageSelect"),
   languageButtons: Array.from(document.querySelectorAll("[data-language]")),
   themeButtons: Array.from(document.querySelectorAll("[data-theme]")),
   canvasColor: document.querySelector("#canvasColor"),
   profileSelect: document.querySelector("#profileSelect"),
+  profileFieldLabel: document.querySelector("#profileFieldLabel"),
   groupSelect: document.querySelector("#groupSelect"),
+  groupFieldLabel: document.querySelector("#groupFieldLabel"),
   groupSearch: document.querySelector("#groupSearch"),
   sceneSelect: document.querySelector("#sceneSelect"),
   sceneScale: document.querySelector("#sceneScale"),
@@ -146,13 +149,13 @@ const I18N = {
     frameAttachmentPasteEmpty: "没有已复制的附加图。",
     frameAttachmentPasteProjectMismatch: "复制的附加图属于另一个项目，不能直接粘贴。",
     dropImageFile: "请把图片拖到帧卡片上。",
-    frameTimeConflict: "当前组时间正在控制整组时长。确认后将改为单帧时间，并清除组时间设置。",
+    frameTimeConflict: "当前组时间正在控制整组时长。确认后会用当前平均单帧时长初始化所有帧，再切换到单帧时间。",
     audioPreviewBlocked: "音频预览被浏览器拦截：{message}",
     ghost: "残影",
     group: "组",
     groupBase: "组 Base",
     groupFps: "组 FPS",
-    groupTimeConflict: "当前已经调过单帧时间。确认后将改为组时间，并清除单帧时间设置。",
+    groupTimeConflict: "当前已经调过单帧时间。确认后会从当前总时长开始切换到组时间，并清除单帧时间设置。",
     groupTimeMs: "组时长",
     groupSearchPlaceholder: "名称、类型、来源",
     height: "高",
@@ -184,6 +187,16 @@ const I18N = {
     playback: "播放",
     preloadedFrames: "已预载 {count} 帧\n{root}",
     project: "项目",
+    pet: "宠物",
+    state: "状态",
+    addCodexPet: "＋ 导入新宠物",
+    codexPetNamePrompt: "宠物显示名称",
+    codexPetDescriptionPrompt: "宠物描述（可留空）",
+    codexPetAtlasWrongSize: "Codex 宠物图集必须是 1536×1872（v1）或 1536×2288（v2）的 WebP。",
+    codexPetImportFailed: "宠物导入失败：{message}",
+    codexPetImported: "已导入 {name}，正在刷新宠物项目。",
+    codexPetBuiltInSaved: "内置宠物只读；调参已保存在 Tuner。导入为自定义宠物后可回写 Codex。",
+    codexPetExported: "已回写 {count} 个自定义宠物，并保留原始图集备份。",
     projectRefreshFailed: "刷新失败：{message}",
     projectSwitchConfirm: "切换项目会丢弃未保存的调参，继续吗？",
     projectSwitchFailed: "项目切换失败：{message}",
@@ -285,13 +298,13 @@ const I18N = {
     frameAttachmentPasteEmpty: "No attached image has been copied.",
     frameAttachmentPasteProjectMismatch: "Copied attached images belong to another project.",
     dropImageFile: "Drop an image onto a frame card.",
-    frameTimeConflict: "Group time is controlling this animation. Confirm to switch to frame timing and clear the group time override.",
+    frameTimeConflict: "Group time is controlling this animation. Confirm to initialize every frame from the current average frame duration, then switch to frame timing.",
     audioPreviewBlocked: "Audio preview blocked: {message}",
     ghost: "Ghost",
     group: "Group",
     groupBase: "Group Base",
     groupFps: "Group FPS",
-    groupTimeConflict: "Frame timing has already been adjusted. Confirm to switch to group time and clear frame duration overrides.",
+    groupTimeConflict: "Frame timing has already been adjusted. Confirm to switch from the current total duration to group timing and clear frame duration overrides.",
     groupTimeMs: "Group duration",
     groupSearchPlaceholder: "Name, type, source",
     height: "Height",
@@ -323,6 +336,16 @@ const I18N = {
     playback: "Playback",
     preloadedFrames: "Preloaded {count} frames\n{root}",
     project: "Project",
+    pet: "Pet",
+    state: "State",
+    addCodexPet: "+ Import new pet",
+    codexPetNamePrompt: "Pet display name",
+    codexPetDescriptionPrompt: "Pet description (optional)",
+    codexPetAtlasWrongSize: "A Codex pet atlas must be a 1536×1872 (v1) or 1536×2288 (v2) WebP.",
+    codexPetImportFailed: "Pet import failed: {message}",
+    codexPetImported: "Imported {name}; refreshing the pet project.",
+    codexPetBuiltInSaved: "Built-in pets are read-only. Tuning was saved in the Tuner; import a custom copy to write it back to Codex.",
+    codexPetExported: "Updated {count} custom pets and kept the original atlas backup.",
     projectRefreshFailed: "Refresh failed: {message}",
     projectSwitchConfirm: "Switch project and discard unsaved tuning changes?",
     projectSwitchFailed: "Project switch failed: {message}",
@@ -373,17 +396,18 @@ const I18N = {
     width: "Width",
   },
 };
+const PAGE_PARAMS = new URLSearchParams(window.location.search);
 let config = null;
 let language = localStorage.getItem("xsxbFrameTuner.language") || "zh";
 let uiTheme = localStorage.getItem("xsxbFrameTuner.theme") || "dark";
 let canvasColor = localStorage.getItem("xsxbFrameTuner.canvasColor") || "#000000";
-let selectedProjectId = localStorage.getItem("xsxbFrameTuner.project") || "";
-let selectedSceneId = localStorage.getItem("xsxbFrameTuner.scene") || "";
+let selectedProjectId = PAGE_PARAMS.get("project") || localStorage.getItem("xsxbFrameTuner.project") || "";
+let selectedSceneId = "";
 let currentGroup = null;
 let selectedFrame = 0;
 let selectedFrames = new Set([0]);
 let selectionAnchorFrame = 0;
-let selectedProfileId = localStorage.getItem("animationTuner.profile") || "all";
+let selectedProfileId = PAGE_PARAMS.get("profile") || localStorage.getItem("animationTuner.profile") || "all";
 let groupSearch = localStorage.getItem("animationTuner.groupSearch") || "";
 let images = [];
 let chainImages = [];
@@ -421,6 +445,7 @@ let ghost = true;
 let referenceFrameHiddenByKey = false;
 let playing = false;
 let lastPlay = 0;
+let lastAttackTrailPlaybackSampleToken = "";
 let pointerStagePoint = null;
 let playbackPrimaryGroup = null;
 let playbackSecondaryGroup = null;
@@ -429,6 +454,8 @@ let view = { zoom: 1, x: 0, y: 0 };
 let drag = null;
 let undoStack = [];
 let redoStack = [];
+const UNDO_COALESCE_WINDOW_MS = 650;
+let coalescedUndo = null;
 let inputEditSnapshots = new WeakMap();
 let baseEditSnapshot = null;
 let boxEditSnapshot = null;
@@ -461,11 +488,13 @@ let adjustmentMode = ADJUSTMENT_MODES.includes(localStorage.getItem(ADJUSTMENT_M
 let frameBoxOverrides = {};
 const GROUP_PLAYBACK_FRAME = "__group";
 let dirty = false;
+let dirtyPetProfileIds = new Set();
 let saveInFlight = false;
 let lastSavedAt = "";
 let tunerUpdateStatus = null;
 let tunerUpdateToken = "";
 let tunerUpdatePhase = "";
+let attackTrailEditor = null;
 
 function t(key, vars = {}) {
   const table = I18N[language] || I18N.zh;
@@ -597,6 +626,7 @@ function applyLanguage() {
   updateCanvasTitle();
   updateCoordHud();
   if (config) {
+    renderProjectSelect();
     renderSceneSelect();
     renderProfileSelect();
     renderGroupSelect(currentGroup?.uiId);
@@ -720,11 +750,13 @@ function updateSaveState() {
 
 function markDirty() {
   dirty = true;
+  if (config?.projectKind === "codex_pets" && currentGroup?.profileId) dirtyPetProfileIds.add(currentGroup.profileId);
   updateSaveState();
 }
 
 function markClean() {
   dirty = false;
+  dirtyPetProfileIds.clear();
   lastSavedAt = new Date().toLocaleTimeString();
   updateSaveState();
 }
@@ -750,9 +782,37 @@ function activeProjectId() {
   return config?.activeProjectId || selectedProjectId || "";
 }
 
-function activeSceneId() {
+function activeSceneProfileId() {
+  if (selectedProfileId && selectedProfileId !== "all") return selectedProfileId;
+  return currentGroup?.profileId || "";
+}
+
+function visibleScenes() {
   const scenes = Array.isArray(config?.scenes) ? config.scenes : [];
+  const profileId = activeSceneProfileId();
+  if (!profileId) {
+    return scenes.filter((scene) => Array.isArray(scene.profileIds) && scene.profileIds.length > 0);
+  }
+  return scenes.filter((scene) => Array.isArray(scene.profileIds) && scene.profileIds.includes(profileId));
+}
+
+function sceneStorageKey() {
+  return `xsxbFrameTuner.scene.${activeProjectId() || "default"}.${activeSceneProfileId() || "all"}`;
+}
+
+function storedSceneId() {
+  return localStorage.getItem(sceneStorageKey()) || "";
+}
+
+function rememberSelectedScene() {
+  if (selectedSceneId) localStorage.setItem(sceneStorageKey(), selectedSceneId);
+}
+
+function activeSceneId() {
+  const scenes = visibleScenes();
   if (selectedSceneId && scenes.some((scene) => scene.id === selectedSceneId)) return selectedSceneId;
+  const stored = storedSceneId();
+  if (stored && scenes.some((scene) => scene.id === stored)) return stored;
   return scenes[0]?.id || "";
 }
 
@@ -768,7 +828,7 @@ function activeSceneScale() {
 
 function renderSceneSelect() {
   if (!els.sceneSelect) return;
-  const scenes = Array.isArray(config?.scenes) ? config.scenes : [];
+  const scenes = visibleScenes();
   if (!scenes.length) {
     els.sceneSelect.innerHTML = `<option value="">${escapeHtml(t("noScenes"))}</option>`;
     els.sceneSelect.value = "";
@@ -778,12 +838,12 @@ function renderSceneSelect() {
     return;
   }
   els.sceneSelect.innerHTML = scenes
-    .map((scene) => `<option value="${escapeHtml(scene.id)}">${escapeHtml(scene.label || scene.path || scene.id)}</option>`)
+    .map((scene) => `<option value="${escapeHtml(scene.id)}">${escapeHtml(scene.label || scene.path || scene.id)} · ×${escapeHtml(round(sceneScaleFor(scene.id)))}</option>`)
     .join("");
   selectedSceneId = activeSceneId();
   els.sceneSelect.value = selectedSceneId;
   els.sceneSelect.disabled = false;
-  if (selectedSceneId) localStorage.setItem("xsxbFrameTuner.scene", selectedSceneId);
+  rememberSelectedScene();
   syncSceneInputs();
 }
 
@@ -793,6 +853,14 @@ function syncSceneInputs() {
   if (els.sceneSelect && sceneId) els.sceneSelect.value = sceneId;
   els.sceneScale.disabled = !sceneId;
   els.sceneScale.value = String(round(sceneScaleFor(sceneId)));
+}
+
+function syncSceneOptionLabel(sceneId) {
+  if (!els.sceneSelect || !sceneId) return;
+  const scene = visibleScenes().find((entry) => entry.id === sceneId);
+  const option = Array.from(els.sceneSelect.options).find((entry) => entry.value === sceneId);
+  if (!scene || !option) return;
+  option.textContent = `${scene.label || scene.path || scene.id} · ×${round(sceneScaleFor(sceneId))}`;
 }
 
 function updateSceneScaleFromInput() {
@@ -807,6 +875,7 @@ function updateSceneScaleFromInput() {
       scale: nextScale,
     };
   }
+  syncSceneOptionLabel(sceneId);
   markDirty();
   updateSaveState();
   draw();
@@ -1038,6 +1107,7 @@ function selectFrameImageAttachment(attachment, index = selectedFrame, group = c
   else syncAdjustmentInputs();
   syncFrameInputs();
   renderFilmstrip();
+  attackTrailEditor?.render();
   draw();
 }
 
@@ -1412,7 +1482,21 @@ function canUseReferenceFrame(group = currentGroup) {
 }
 
 function assetUrl(frame) {
-  return `/asset?path=${encodeURIComponent(frame.path)}&v=${Date.now()}`;
+  const version = frame?.assetVersion || (frame?.crop ? "atlas" : Date.now());
+  return `/asset?path=${encodeURIComponent(frame.path)}&v=${encodeURIComponent(version)}`;
+}
+
+function frameThumbnailMarkup(frame) {
+  const crop = frame?.crop;
+  if (!crop) return `<img src="${assetUrl(frame)}" alt="">`;
+  const columns = Math.max(1, Number(crop.sheetWidth || crop.width) / Math.max(1, Number(crop.width || 1)));
+  const rows = Math.max(1, Number(crop.sheetHeight || crop.height) / Math.max(1, Number(crop.height || 1)));
+  const column = Number(crop.x || 0) / Math.max(1, Number(crop.width || 1));
+  const row = Number(crop.y || 0) / Math.max(1, Number(crop.height || 1));
+  const positionX = columns <= 1 ? 0 : (column / (columns - 1)) * 100;
+  const positionY = rows <= 1 ? 0 : (row / (rows - 1)) * 100;
+  const style = `background-image:url('${assetUrl(frame)}');background-size:${columns * 100}% ${rows * 100}%;background-position:${positionX}% ${positionY}%`;
+  return `<span class="thumbSprite" role="img" style="${style}"></span>`;
 }
 
 function escapeHtml(value) {
@@ -1425,7 +1509,8 @@ function escapeHtml(value) {
 
 function projectLabel(project) {
   if (!project) return "Project";
-  return project.label || project.id || "Project";
+  const label = project.label || project.id || "Project";
+  return project.kind === "codex_pets" ? `🐾 ${label}` : label;
 }
 
 function renderProjectSelect() {
@@ -1439,6 +1524,14 @@ function renderProjectSelect() {
   if (active) localStorage.setItem("xsxbFrameTuner.project", active);
   els.projectSelect.value = active;
   els.projectSelect.disabled = !projects.length;
+  if (els.addCodexPet) {
+    els.addCodexPet.hidden = config?.projectKind !== "codex_pets";
+    els.addCodexPet.closest(".projectActions")?.classList.toggle("hasPetAction", config?.projectKind === "codex_pets");
+  }
+  const petMode = config?.projectKind === "codex_pets";
+  document.querySelectorAll('[data-i18n="character"]').forEach((node) => { node.textContent = petMode ? t("pet") : t("character"); });
+  document.querySelectorAll('[data-i18n="group"]').forEach((node) => { node.textContent = petMode ? t("state") : t("group"); });
+  document.body.classList.toggle("codexPetsProject", petMode);
 }
 
 function resetProjectSession() {
@@ -1447,6 +1540,7 @@ function resetProjectSession() {
   playbackSecondaryGroup = null;
   playbackSwitching = false;
   currentGroup = null;
+  selectedSceneId = "";
   selectedFrame = 0;
   selectedFrames = new Set([0]);
   selectionAnchorFrame = 0;
@@ -1460,6 +1554,7 @@ function resetProjectSession() {
   referenceFrame = null;
   undoStack = [];
   redoStack = [];
+  coalescedUndo = null;
   imageCache.clear();
   opaqueRectCache = new WeakMap();
   huangXianAnchorXCache = new WeakMap();
@@ -1487,6 +1582,7 @@ async function activateProject(projectId) {
   localStorage.setItem("xsxbFrameTuner.project", projectId);
   resetProjectSession();
   dirty = false;
+  dirtyPetProfileIds.clear();
   await loadConfig();
   resizeCanvas();
 }
@@ -1595,6 +1691,7 @@ async function loadConfig() {
   config = await res.json();
   config.groups = Array.isArray(config.groups) ? config.groups : [];
   config.scenes = Array.isArray(config.scenes) ? config.scenes : [];
+  attackTrailEditor?.load(config.attackTrails);
   selectedProjectId = config.activeProjectId || selectedProjectId || "";
   if (selectedProjectId) localStorage.setItem("xsxbFrameTuner.project", selectedProjectId);
   config.groups.forEach((group, index) => { group.uiId = `${group.tuningTarget || "player"}:${group.type}:${group.name}:${index}`; });
@@ -1639,11 +1736,22 @@ async function loadConfig() {
   updateHistoryControls();
   startPreloadImages();
   const savedGroupUiId = localStorage.getItem("animationTuner.groupUiId");
-  const initialGroup = config.groups.find((group) => group.uiId === savedGroupUiId)
+  const requestedGroup = PAGE_PARAMS.get("group");
+  const initialGroup = config.groups.find((group) => requestedGroup && group.name === requestedGroup && (!PAGE_PARAMS.get("profile") || group.profileId === PAGE_PARAMS.get("profile")))
+    || config.groups.find((group) => group.uiId === savedGroupUiId)
     || config.groups.find((group) => group.name === "stand_attack")
     || config.groups[0];
   if (initialGroup) {
-    await selectGroup(initialGroup);
+    const requestedFrame = clampInteger(Number(PAGE_PARAMS.get("frame") || 1) - 1, 0, Math.max(0, initialGroup.frames.length - 1));
+    await selectGroup(initialGroup, { frameIndex: requestedFrame });
+    if (PAGE_PARAMS.get("attackTrail") === "1" && config.projectKind !== "codex_pets") {
+      attackTrailEditor.enabled = true;
+      attackTrailEditor.segmentId = attackTrailEditor._displaySegments()[0]?.id || "";
+      attackTrailEditor.stickId = attackTrailEditor._segment()?.sticks[0]?.id || "";
+      attackTrailEditor.render();
+      document.querySelector("#attackTrailPanel").open = true;
+      draw();
+    }
   } else {
     resetProjectSession();
     renderProjectSelect();
@@ -1671,6 +1779,8 @@ async function selectGroup(group, options = {}) {
   }
   renderGroupSelect(group.uiId);
   currentGroup = group;
+  if (!selectedProfileId || selectedProfileId === "all") selectedSceneId = storedSceneId();
+  renderSceneSelect();
   localStorage.setItem("animationTuner.groupUiId", group.uiId);
   selectedFrame = Number.isInteger(options.frameIndex) ? options.frameIndex : 0;
   images = await Promise.all(group.frames.map(loadImageCached));
@@ -1702,6 +1812,7 @@ async function selectGroup(group, options = {}) {
   syncGroupPlaybackInputs();
   syncGroupTimeInputs();
   renderFilmstrip();
+  attackTrailEditor?.contextChanged();
   const preserveView = options.preserveView === true || (options.preserveView !== false && hadCurrentGroup);
   if (options.fitView === true || !preserveView) fitView();
   draw();
@@ -1764,14 +1875,14 @@ async function loadFrameImageAttachmentsForGroup(group) {
 }
 
 function startPreloadImages() {
-  const paths = new Set();
+  const frames = new Map();
   for (const group of config.groups) {
-    for (const frame of group.frames) paths.add(frame.path);
+    for (const frame of group.frames) frames.set(imageCacheKey(frame), frame);
   }
   preloadLoaded = 0;
-  preloadTotal = paths.size;
-  for (const path of paths) {
-    loadImageCached({ path }).then(() => {
+  preloadTotal = frames.size;
+  for (const frame of frames.values()) {
+    loadImageCached(frame).then(() => {
       preloadLoaded += 1;
       if (preloadLoaded === preloadTotal) status(t("preloadedFrames", { count: preloadTotal, root: config.root }));
     }).catch(() => {
@@ -1783,11 +1894,13 @@ function startPreloadImages() {
 function imageCacheKey(frame) {
   const hash = String(frame?.assetHash || "");
   if (hash) return `asset:${hash}`;
-  return String(frame?.path || "");
+  const crop = frame?.crop;
+  const cropKey = crop ? `:${crop.x},${crop.y},${crop.width},${crop.height}` : "";
+  return `${String(frame?.path || "")}${cropKey}:${String(frame?.assetVersion || "")}`;
 }
 
 function cachedImageForFrame(frame) {
-  return imageElements.get(imageCacheKey(frame)) || imageElements.get(String(frame?.path || ""));
+  return imageElements.get(imageCacheKey(frame)) || (!frame?.crop ? imageElements.get(String(frame?.path || "")) : null);
 }
 
 function loadImageCached(frame) {
@@ -1795,7 +1908,7 @@ function loadImageCached(frame) {
   if (!imageCache.has(key)) {
     imageCache.set(key, loadImage(frame).then((img) => {
       imageElements.set(key, img);
-      if (frame?.path) imageElements.set(String(frame.path), img);
+      if (frame?.path && !frame?.crop) imageElements.set(String(frame.path), img);
       return img;
     }));
   }
@@ -1805,7 +1918,30 @@ function loadImageCached(frame) {
 function loadImage(frame) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      const crop = frame?.crop;
+      if (!crop) {
+        resolve(img);
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Number(crop.width || frame.width || 1));
+      canvas.height = Math.max(1, Number(crop.height || frame.height || 1));
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(
+        img,
+        Number(crop.x || 0),
+        Number(crop.y || 0),
+        canvas.width,
+        canvas.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+      resolve(canvas);
+    };
     img.onerror = reject;
     img.src = assetUrl(frame);
   });
@@ -2102,6 +2238,7 @@ function cloneState() {
     framePlaybackOverrides: structuredClone(framePlaybackOverrides),
     vfxPlaybackOverrides: structuredClone(vfxPlaybackOverrides),
     frameBoxOverrides: structuredClone(frameBoxOverrides),
+    attackTrails: attackTrailEditor?.snapshot() || { schemaVersion: 1, bindings: {} },
     bossFrameOverrides: structuredClone(bossFrameOverrides),
     bossPlaybackOverrides: structuredClone(bossPlaybackOverrides),
     act2StatueBossFrameOverrides: structuredClone(act2StatueBossFrameOverrides),
@@ -2126,12 +2263,29 @@ function updateHistoryControls() {
   if (els.redoTop) els.redoTop.disabled = !redoStack.length;
 }
 
-function pushUndo(label = "edit") {
+function pushUndoSnapshot(label = "edit") {
   undoStack.push({ label, state: cloneState() });
   if (undoStack.length > 80) undoStack.shift();
   redoStack = [];
   updateHistoryControls();
   status(t("undoReady", { label }));
+}
+
+function resetUndoCoalescing() {
+  coalescedUndo = null;
+}
+
+function pushUndo(label = "edit") {
+  resetUndoCoalescing();
+  pushUndoSnapshot(label);
+}
+
+function pushCoalescedUndo(key, label = "edit") {
+  const now = performance.now();
+  const continuesPreviousEdit = coalescedUndo?.key === key
+    && now - coalescedUndo.lastAt <= UNDO_COALESCE_WINDOW_MS;
+  if (!continuesPreviousEdit) pushUndoSnapshot(label);
+  coalescedUndo = { key, lastAt: now };
 }
 
 function restoreHistoryState(state) {
@@ -2150,6 +2304,7 @@ function restoreHistoryState(state) {
   framePlaybackOverrides = structuredClone(state.framePlaybackOverrides);
   vfxPlaybackOverrides = structuredClone(state.vfxPlaybackOverrides);
   frameBoxOverrides = structuredClone(state.frameBoxOverrides || {});
+  attackTrailEditor?.restore(state.attackTrails || { schemaVersion: 1, bindings: {} });
   bossFrameOverrides = structuredClone(state.bossFrameOverrides);
   bossPlaybackOverrides = structuredClone(state.bossPlaybackOverrides);
   act2StatueBossFrameOverrides = structuredClone(state.act2StatueBossFrameOverrides || {});
@@ -2172,6 +2327,7 @@ function restoreHistoryState(state) {
 }
 
 function undo() {
+  resetUndoCoalescing();
   const item = undoStack.pop();
   if (!item) {
     status(t("undoNothing"));
@@ -2189,6 +2345,7 @@ function undo() {
 }
 
 function redo() {
+  resetUndoCoalescing();
   const item = redoStack.pop();
   if (!item) {
     status(t("redoNothing"));
@@ -2320,7 +2477,7 @@ function framePlayback(index = selectedFrame, group = currentGroup) {
   if (!group) return { duration: 1, disabled: false };
   const override = playbackStore(group)[tuningFrameKey(index, group)] || {};
   return {
-    duration: Number(override.duration || 1),
+    duration: Number(override.duration ?? group.frames?.[index]?.duration ?? 1),
     disabled: override.disabled === true,
   };
 }
@@ -2477,9 +2634,26 @@ function clearFrameDurationOverrides(group = currentGroup) {
   return changed;
 }
 
+function materializeGroupTimeAsAverageFrameDurations(group = currentGroup) {
+  if (!group || !groupHasGroupTimeOverride(group)) return false;
+  const timing = window.XsxbTimingModes.averageFrameTiming(
+    groupPlaybackDurationSeconds(group) * 1000,
+    playableFrameCount(group),
+    group.speed,
+    MIN_FRAME_DURATION_MS
+  );
+  if (!timing) return false;
+  clearGroupTimeOverride(group);
+  for (let index = 0; index < group.frames.length; index += 1) {
+    const playback = framePlayback(index, group);
+    setFramePlayback(index, { ...playback, duration: timing.multiplier }, group);
+  }
+  return true;
+}
+
 function syncGroupTimeInputs() {
   if (!els.groupTimeMs) return;
-  const visible = adjustmentMode === "group";
+  const visible = adjustmentMode === "group" && Boolean(currentGroup) && canEditFramePlayback() && !usesAttachedPlaybackTiming();
   if (els.groupTimeField) els.groupTimeField.hidden = !visible;
   if (!visible) return;
   const editable = Boolean(currentGroup) && canEditFramePlayback() && !usesAttachedPlaybackTiming();
@@ -2489,10 +2663,10 @@ function syncGroupTimeInputs() {
 
 function setGroupTimeMs(ms, group = currentGroup) {
   if (!group || usesAttachedPlaybackTiming(group)) return false;
-  const targetSeconds = Math.max(MIN_FRAME_DURATION_MS, Number(ms) || MIN_FRAME_DURATION_MS) / 1000;
   const durationUnits = groupPlaybackDurationUnits(group);
-  if (durationUnits <= 0 || targetSeconds <= 0) return false;
-  setGroupPlaybackData({ fps: durationUnits / targetSeconds }, group);
+  const fps = window.XsxbTimingModes.groupFpsForDuration(durationUnits, ms, MIN_FRAME_DURATION_MS);
+  if (!fps) return false;
+  setGroupPlaybackData({ fps }, group);
   return true;
 }
 
@@ -3486,13 +3660,25 @@ function endStepAdjustmentEdit() {
   boxEditSnapshot = null;
 }
 
+function adjustmentStepUndoKey(input) {
+  return [
+    "adjustment-step",
+    activeProjectId(),
+    currentGroup?.uiId || "",
+    adjustmentMode,
+    selectedAttachmentId || "",
+    selectedFrameIndexes().join(","),
+    input?.id || "",
+  ].join("|");
+}
+
 function stepAdjustmentInput(input, direction, multiplier = 1) {
   if (!input || input.disabled) return;
   const current = Number(input.value);
   if (!Number.isFinite(current)) return;
   const step = Number(input.step || 1) || 1;
   const nextValue = current + Number(direction || 0) * step * multiplier;
-  pushUndo("adjustment step");
+  pushCoalescedUndo(adjustmentStepUndoKey(input), "adjustment step");
   beginStepAdjustmentEdit();
   input.value = round(nextValue);
   if (input === els.baseScale) {
@@ -3594,6 +3780,7 @@ function syncFrameInputs() {
   syncAdjustmentInputs();
   syncBoxInputs();
   syncFrameAudioInputs();
+  attackTrailEditor?.frameChanged();
 }
 
 function syncGroupPlaybackInputs() {
@@ -3951,7 +4138,7 @@ function renderFilmstripGroup(group, label) {
       : "";
     item.innerHTML = `
       ${audioBadge}
-      <img src="${assetUrl(frame)}" alt="">
+      ${frameThumbnailMarkup(frame)}
       <span class="thumbLabel">${label}${index + 1}</span>
       <div class="thumbDuration">
         <button class="durationStep" data-delta="${-FRAME_DURATION_STEP_MS}" ${canAdjustDuration ? "" : "disabled"} title="-${FRAME_DURATION_STEP_MS}ms">-</button>
@@ -3971,7 +4158,7 @@ function renderFilmstripGroup(group, label) {
         await removeSfx(event);
       });
     }
-    const canDropOnFrame = isCurrent && Boolean(currentGroup);
+    const canDropOnFrame = isCurrent && Boolean(currentGroup) && config?.projectKind !== "codex_pets";
     for (const eventName of ["dragenter", "dragover"]) {
       item.addEventListener(eventName, (event) => {
         if (!canDropOnFrame) return;
@@ -4550,6 +4737,109 @@ function drawFrame(index, alpha, selected, group = currentGroup, groupImages = i
   ctx.restore();
 }
 
+function attackTrailLocalToScreen(point, index = selectedFrame, group = currentGroup, groupImages = images) {
+  const anchorIndex = 0;
+  const stableTransform = baseTransform(group);
+  const rect = frameScreenRect(anchorIndex, group, groupImages, { transform: stableTransform });
+  if (!rect || !group) return { x: 0, y: 0 };
+  const transform = renderTransformForGroup(stableTransform, group);
+  const runtimeScale = runtimeBaseScaleForGroup(anchorIndex, group, groupImages);
+  const worldScale = view.zoom * devicePixelRatio;
+  const flipH = effectiveFlipH(group);
+  const facing = flipH ? -1 : 1;
+  const scaleX = runtimeScale * transform.scaleX * worldScale * facing;
+  const scaleY = runtimeScale * transform.scaleY * worldScale;
+  const rotation = (Number(transform.rotation || 0) * facing * Math.PI) / 180;
+  const x = Number(point?.x || 0) * scaleX;
+  const y = Number(point?.y || 0) * scaleY;
+  return {
+    x: rect.originX + x * Math.cos(rotation) - y * Math.sin(rotation),
+    y: rect.originY + x * Math.sin(rotation) + y * Math.cos(rotation),
+  };
+}
+
+function attackTrailScreenToLocal(point, index = selectedFrame, group = currentGroup, groupImages = images) {
+  const anchorIndex = 0;
+  const stableTransform = baseTransform(group);
+  const rect = frameScreenRect(anchorIndex, group, groupImages, { transform: stableTransform });
+  if (!rect || !group) return { x: 0, y: 0 };
+  const transform = renderTransformForGroup(stableTransform, group);
+  const runtimeScale = runtimeBaseScaleForGroup(anchorIndex, group, groupImages);
+  const worldScale = view.zoom * devicePixelRatio;
+  const flipH = effectiveFlipH(group);
+  const facing = flipH ? -1 : 1;
+  const scaleX = runtimeScale * transform.scaleX * worldScale * facing;
+  const scaleY = runtimeScale * transform.scaleY * worldScale;
+  const rotation = -(Number(transform.rotation || 0) * facing * Math.PI) / 180;
+  const dx = Number(point?.x || 0) - rect.originX;
+  const dy = Number(point?.y || 0) - rect.originY;
+  return {
+    x: (dx * Math.cos(rotation) - dy * Math.sin(rotation)) / (scaleX || 1),
+    y: (dx * Math.sin(rotation) + dy * Math.cos(rotation)) / (scaleY || 1),
+  };
+}
+
+function attackTrailFrameArrival(frameIndex, framePhase, group = currentGroup) {
+  if (!group?.frames?.length) return 0;
+  const target = clampInteger(frameIndex, 0, group.frames.length - 1);
+  let elapsed = 0;
+  for (let index = 0; index < target; index += 1) {
+    if (!framePlayback(index, group).disabled) elapsed += frameDurationMs(index, group) / 1000;
+  }
+  if (!framePlayback(target, group).disabled) elapsed += (frameDurationMs(target, group) / 1000) * clampNumber(framePhase, 0, 1);
+  return elapsed;
+}
+
+function attackTrailAnimationElapsedRaw(group = currentGroup) {
+  if (!group) return 0;
+  if (!playing) {
+    const selectedStickArrival = attackTrailEditor?.selectedStickArrival();
+    if (Number.isFinite(selectedStickArrival)) return selectedStickArrival;
+  }
+  let elapsed = attackTrailFrameArrival(selectedFrame, 0, group);
+  if (playing && lastPlay > 0 && !framePlayback(selectedFrame, group).disabled) {
+    elapsed += Math.min(frameDurationMs(selectedFrame, group) / 1000, Math.max(0, (performance.now() - lastPlay) / 1000));
+  }
+  return elapsed;
+}
+
+function attackTrailPlaybackSample(group = currentGroup) {
+  const rawTime = attackTrailAnimationElapsedRaw(group);
+  if (!playing || !group) {
+    return { time: rawTime, sampleIndex: 0, subdivisions: 1, step: 0 };
+  }
+  const frameStart = attackTrailFrameArrival(selectedFrame, 0, group);
+  const frameDuration = frameDurationMs(selectedFrame, group) / 1000;
+  return window.XsxbTimingModes.frameSynchronousEffectSample(
+    rawTime,
+    frameStart,
+    frameDuration,
+    1 / groupPlaybackFps(group),
+  );
+}
+
+function attackTrailAnimationElapsed(group = currentGroup) {
+  return attackTrailPlaybackSample(group).time;
+}
+
+function attackTrailPlaybackSampleToken(group = currentGroup) {
+  if (!playing || !group) return "";
+  const sample = attackTrailPlaybackSample(group);
+  return `${group.uiId}:${selectedFrame}:${sample.sampleIndex}/${sample.subdivisions}:${sample.step.toFixed(6)}`;
+}
+
+function attackTrailAnimationTiming(group = currentGroup) {
+  if (!group?.frames?.length) return { duration: 0, lastPlayableFrameStart: 0 };
+  let duration = 0;
+  let lastPlayableFrameStart = 0;
+  for (let index = 0; index < group.frames.length; index += 1) {
+    if (framePlayback(index, group).disabled) continue;
+    lastPlayableFrameStart = duration;
+    duration += frameDurationMs(index, group) / 1000;
+  }
+  return { duration, lastPlayableFrameStart };
+}
+
 function sequenceOverlapEnabled(group = currentGroup) {
   return Boolean(group?.sequenceOverlap) && (group.frames?.length || 0) > 1;
 }
@@ -4579,6 +4869,13 @@ function drawSequenceOverlapFrame(index, alpha, group = currentGroup, groupImage
 function playbackNeedsContinuousDraw() {
   if (!playing || !currentGroup) return false;
   if (sequenceOverlapEnabled(currentGroup)) return true;
+  if (attackTrailEditor?.isContinuous()) {
+    const sampleToken = attackTrailPlaybackSampleToken();
+    if (sampleToken !== lastAttackTrailPlaybackSampleToken) {
+      lastAttackTrailPlaybackSampleToken = sampleToken;
+      return true;
+    }
+  }
   return attachedLayerGroups(currentGroup).some((group) => group.independentPlayback === true || sequenceOverlapEnabled(group));
 }
 
@@ -4781,6 +5078,7 @@ function drawCompositeFrame(index, alpha, selected) {
     const ownerIndex = compositeOwnerFrameIndex(index, previewOwnerGroup);
     drawFrame(ownerIndex, Math.min(alpha, 0.72), false, previewOwnerGroup, previewOwnerImages);
     drawFrameImageAttachments(index, alpha, "below", currentGroup, images);
+    if (selected) attackTrailEditor?.drawLayer("behind", index, alpha);
     if (selected) {
       const nextIndex = nextPlayableFrameInGroup(currentGroup, index).index;
       drawSequenceOverlapFrame(index, alpha, currentGroup, images, {
@@ -4793,12 +5091,15 @@ function drawCompositeFrame(index, alpha, selected) {
       flipH: compositeLayerFlipH(currentGroup, previewOwnerGroup),
     });
     drawFrameImageAttachments(index, alpha, "above", currentGroup, images);
+    if (selected) attackTrailEditor?.drawLayer("front", index, alpha);
     return;
   }
   if (selected) drawSequenceOverlapFrame(index, alpha);
   drawFrameImageAttachments(index, alpha, "below");
+  if (selected) attackTrailEditor?.drawLayer("behind", index, alpha);
   drawFrame(index, alpha, selected);
   drawFrameImageAttachments(index, alpha, "above");
+  if (selected) attackTrailEditor?.drawLayer("front", index, alpha);
   drawAttachedLayersForOwner(currentGroup, index, alpha);
 }
 
@@ -4951,6 +5252,7 @@ function draw() {
   drawCompositeFrame(selectedFrame, 1, true);
   drawReferenceFrameOverlay();
   drawBoxes();
+  attackTrailEditor?.drawGuides();
   drawCoordinateMarkers();
   drawCanvasHints();
   updateCoordHud();
@@ -5009,7 +5311,7 @@ function updateSelectedPlaybackFromInputs({ preserveDuration = false, changeDura
   }
   if (hasGroupTiming) {
     if (!els.frameDuration?.dataset.undoUsed) pushUndo("frame duration");
-    clearGroupTimeOverride(currentGroup);
+    materializeGroupTimeAsAverageFrameDurations(currentGroup);
   }
   for (const frameIndex of selectedIndexes) {
     const playback = framePlayback(frameIndex, currentGroup);
@@ -5028,16 +5330,30 @@ function updateSelectedPlaybackFromInputs({ preserveDuration = false, changeDura
 function adjustFrameDurationMs(index, deltaMs) {
   if (!currentGroup || !canEditFramePlayback() || usesAttachedPlaybackTiming()) return;
   const frameIndex = clampFrameIndex(index, currentGroup);
-  const nextMs = Math.max(MIN_FRAME_DURATION_MS, Math.round(frameDurationMs(frameIndex, currentGroup) + deltaMs));
   const hasGroupTiming = groupHasGroupTimeOverride();
+  const groupAverageTiming = hasGroupTiming
+    ? window.XsxbTimingModes.averageFrameTiming(
+      groupPlaybackDurationSeconds(currentGroup) * 1000,
+      playableFrameCount(currentGroup),
+      currentGroup.speed,
+      MIN_FRAME_DURATION_MS
+    )
+    : null;
+  const startingMs = groupAverageTiming?.durationMs ?? frameDurationMs(frameIndex, currentGroup);
+  const nextMs = Math.max(MIN_FRAME_DURATION_MS, Math.round(startingMs + deltaMs));
   if (hasGroupTiming && !window.confirm(t("frameTimeConflict"))) {
     syncFrameInputs();
     return;
   }
-  pushUndo("frame duration");
+  pushCoalescedUndo([
+    "frame-duration",
+    activeProjectId(),
+    currentGroup.uiId,
+    frameIndex,
+  ].join("|"), "frame duration");
   setSingleFrameSelection(frameIndex, currentGroup);
   const playback = framePlayback(frameIndex, currentGroup);
-  if (hasGroupTiming) clearGroupTimeOverride(currentGroup);
+  if (hasGroupTiming) materializeGroupTimeAsAverageFrameDurations(currentGroup);
   setFramePlayback(frameIndex, {
     ...playback,
     duration: frameDurationMultiplierFromMs(nextMs, currentGroup),
@@ -5151,8 +5467,9 @@ function animate(time) {
   const interval = (1000 / groupPlaybackFps(currentGroup)) * Math.max(0.001, effectiveFrameDurationMultiplier(selectedFrame, currentGroup));
   let advanced = false;
   if (playing && time - lastPlay > interval) {
-    advancePlayback();
     lastPlay = time;
+    advancePlayback();
+    lastAttackTrailPlaybackSampleToken = attackTrailPlaybackSampleToken();
     advanced = true;
   }
   if (!advanced && playbackNeedsContinuousDraw()) {
@@ -5205,6 +5522,65 @@ async function ensureCollisionBoxOverridesForSave() {
   }
 }
 
+function codexPetProfile(profileId) {
+  return (config?.profiles || []).find((profile) => profile.id === profileId && profile.pet) || null;
+}
+
+async function composeCodexPetAtlas(profileId) {
+  const groups = (config?.groups || []).filter((group) => group.profileId === profileId);
+  if (!groups.length) return "";
+  const canvas = document.createElement("canvas");
+  canvas.width = 1536;
+  canvas.height = Number(codexPetProfile(profileId)?.pet?.atlasHeight || 1872);
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  for (const group of groups) {
+    const groupImages = await loadImagesForBoxGeneration(group);
+    for (let index = 0; index < group.frames.length; index += 1) {
+      const frame = group.frames[index];
+      const crop = frame.crop;
+      const img = groupImages[index];
+      if (!crop || !img) continue;
+      const transform = renderTransformForGroup(frameTransform(index, group), group);
+      const runtimeBaseScale = runtimeBaseScaleForGroup(index, group, groupImages);
+      const scaleX = runtimeBaseScale * Number(transform.scaleX || transform.scale || 1);
+      const scaleY = runtimeBaseScale * Number(transform.scaleY || transform.scale || 1);
+      const cellX = Number(crop.x || 0);
+      const cellY = Number(crop.y || 0);
+      const cellWidth = Number(crop.width || 192);
+      const cellHeight = Number(crop.height || 208);
+      const offsetX = Number(transform.offset?.x || 0) * runtimeBaseScale;
+      const offsetY = Number(transform.offset?.y || 0) * runtimeBaseScale;
+      context.save();
+      context.beginPath();
+      context.rect(cellX, cellY, cellWidth, cellHeight);
+      context.clip();
+      context.translate(
+        cellX + cellWidth * 0.5 + offsetX,
+        cellY + cellHeight + offsetY - img.height * scaleY * 0.5
+      );
+      context.rotate((Number(transform.rotation || 0) * Math.PI) / 180);
+      context.drawImage(img, -img.width * scaleX * 0.5, -img.height * scaleY * 0.5, img.width * scaleX, img.height * scaleY);
+      context.restore();
+    }
+  }
+  const data = canvas.toDataURL("image/webp", 1);
+  if (!data.startsWith("data:image/webp;base64,")) throw new Error(t("codexPetAtlasWrongSize"));
+  return data;
+}
+
+async function collectCodexPetExportsForSave() {
+  if (config?.projectKind !== "codex_pets") return [];
+  const exports = [];
+  for (const profileId of dirtyPetProfileIds) {
+    const profile = codexPetProfile(profileId);
+    if (!profile?.pet?.writable) continue;
+    exports.push({ profileId, data: await composeCodexPetAtlas(profileId) });
+  }
+  return exports;
+}
+
 function playbackChainGroup() {
   if (!els.chainGroupSelect) return null;
   return (config?.groups || []).find((group) => group.uiId === els.chainGroupSelect.value) || null;
@@ -5250,6 +5626,9 @@ async function save() {
   pruneNoopFrameOverrides();
   await ensureCollisionBoxOverridesForSave();
   const frameAudioBindingsForSave = await collectFrameAudioBindingsForSave();
+  const codexPetExportsForSave = await collectCodexPetExportsForSave();
+  const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
+    && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
   try {
     const res = await fetch("/api/save", {
       method: "POST",
@@ -5260,11 +5639,13 @@ async function save() {
         scene_settings: collectSceneSettings(),
         frame_audio_bindings: frameAudioBindingsForSave,
         frame_image_attachments: collectFrameImageAttachmentsForSave(),
+        attack_trails: config?.projectKind === "codex_pets" ? undefined : attackTrailEditor?.serialize(),
         frame_visual_overrides: frameOverrides,
         attack_vfx_frame_overrides: vfxFrameOverrides,
         frame_playback_overrides: framePlaybackOverrides,
         attack_vfx_playback_overrides: vfxPlaybackOverrides,
         frame_box_overrides: frameBoxOverrides,
+        codex_pet_exports: codexPetExportsForSave,
         boss: {
           values: collectBossTuningValues(),
           boss_frame_visual_overrides: bossFrameOverrides,
@@ -5294,12 +5675,18 @@ async function save() {
     if (!res.ok) throw new Error(await res.text());
     const result = await res.json().catch(() => ({}));
     if (Array.isArray(result.warnings)) config.warnings = result.warnings;
+    const exportedCount = Array.isArray(result.codexPetExports) ? result.codexPetExports.length : 0;
+    if (exportedCount) await loadConfig();
     saveInFlight = false;
     markClean();
     const warningText = Array.isArray(result.warnings) && result.warnings.length
       ? t("warnings", { warnings: result.warnings.join("\n") })
       : "";
-    status(warningText.trim());
+    const saveMessages = [];
+    if (exportedCount) saveMessages.push(t("codexPetExported", { count: exportedCount }));
+    if (hadReadOnlyPetEdits) saveMessages.push(t("codexPetBuiltInSaved"));
+    if (warningText.trim()) saveMessages.push(warningText.trim());
+    status(saveMessages.join("\n"));
   } catch (error) {
     saveInFlight = false;
     updateSaveState();
@@ -5378,6 +5765,48 @@ function collectYechengPropTuningValues() {
   return result;
 }
 
+function importCodexPetFromFile() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/webp,.webp";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const data = await readFileAsDataUrl(file);
+      const size = await imageSizeFromDataUrl(data);
+      if (!/\.webp$/i.test(file.name || "") || size.width !== 1536 || ![1872, 2288].includes(size.height)) {
+        throw new Error(t("codexPetAtlasWrongSize"));
+      }
+      const suggestedName = String(file.name || "New Pet").replace(/\.webp$/i, "");
+      const displayName = window.prompt(t("codexPetNamePrompt"), suggestedName);
+      if (!displayName?.trim()) return;
+      const description = window.prompt(t("codexPetDescriptionPrompt"), "") || "";
+      const res = await fetch("/api/codex-pets/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          projectId: activeProjectId(),
+          displayName: displayName.trim(),
+          description: description.trim(),
+          data,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const result = await res.json();
+      selectedProfileId = result.imported?.profileId || "all";
+      localStorage.setItem("animationTuner.profile", selectedProfileId);
+      imageCache.clear();
+      await loadConfig();
+      resizeCanvas();
+      status(t("codexPetImported", { name: displayName.trim() }));
+    } catch (error) {
+      status(t("codexPetImportFailed", { message: error.message }));
+    }
+  }, { once: true });
+  input.click();
+}
+
 els.projectSelect.addEventListener("change", () => {
   activateProject(els.projectSelect.value).catch((error) => status(t("projectSwitchFailed", { message: error.message })));
 });
@@ -5385,6 +5814,7 @@ els.refreshProject.addEventListener("click", () => {
   imageCache.clear();
   loadConfig().then(resizeCanvas).catch((error) => status(t("projectRefreshFailed", { message: error.message })));
 });
+if (els.addCodexPet) els.addCodexPet.addEventListener("click", importCodexPetFromFile);
 if (els.languageSelect) {
   els.languageSelect.addEventListener("change", () => {
     language = els.languageSelect.value === "en" ? "en" : "zh";
@@ -5417,7 +5847,7 @@ if (els.canvasColor) {
 if (els.sceneSelect) {
   els.sceneSelect.addEventListener("change", () => {
     selectedSceneId = els.sceneSelect.value || "";
-    if (selectedSceneId) localStorage.setItem("xsxbFrameTuner.scene", selectedSceneId);
+    rememberSelectedScene();
     syncSceneInputs();
     draw();
   });
@@ -5431,6 +5861,8 @@ els.groupSelect.addEventListener("change", () => selectGroup(config.groups.find(
 els.profileSelect.addEventListener("change", () => {
   selectedProfileId = els.profileSelect.value || "all";
   localStorage.setItem("animationTuner.profile", selectedProfileId);
+  selectedSceneId = storedSceneId();
+  renderSceneSelect();
   const groups = renderGroupSelect(currentGroup?.uiId);
   const nextGroup = groups.find((group) => group.uiId === currentGroup?.uiId) || groups[0];
   selectGroup(nextGroup);
@@ -5966,12 +6398,13 @@ if (els.playPause) {
   els.playPause.addEventListener("click", () => {
     clearSelectedAttachment();
     playing = !playing;
+    lastAttackTrailPlaybackSampleToken = "";
     if (playing) {
       playbackPrimaryGroup = currentGroup;
       playbackSecondaryGroup = playbackChainGroup();
       if (playbackSecondaryGroup?.uiId === playbackPrimaryGroup.uiId) playbackSecondaryGroup = null;
       setSingleFrameSelection(framePlayback(selectedFrame).disabled ? firstPlayableFrame(currentGroup) : selectedFrame, currentGroup);
-      lastPlay = 0;
+      lastPlay = performance.now();
       playFrameAudio(selectedFrame, currentGroup);
     } else {
       playbackPrimaryGroup = null;
@@ -5981,6 +6414,7 @@ if (els.playPause) {
     syncFrameInputs();
     renderFilmstrip();
     draw();
+    lastAttackTrailPlaybackSampleToken = attackTrailPlaybackSampleToken();
   });
 }
 
@@ -6016,6 +6450,11 @@ els.stage.addEventListener("pointerdown", (event) => {
     els.stage.classList.add("dragging");
     drag = nextDrag;
   };
+  if (attackTrailEditor?.pointerDown(event)) {
+    els.stage.setPointerCapture(event.pointerId);
+    els.stage.classList.add("dragging");
+    return;
+  }
   const boxHit = hitTestBoxes(event);
   if (boxHit) {
     selectedBox = boxHit.boxName;
@@ -6068,6 +6507,10 @@ els.stage.addEventListener("pointerdown", (event) => {
 
 els.stage.addEventListener("pointermove", (event) => {
   pointerStagePoint = stagePoint(event);
+  if (attackTrailEditor?.pointerMove(event)) {
+    updateCoordHud();
+    return;
+  }
   if (!drag) {
     updateCoordHud();
     return;
@@ -6183,12 +6626,14 @@ els.stage.addEventListener("pointermove", (event) => {
 });
 
 els.stage.addEventListener("pointerup", () => {
+  attackTrailEditor?.pointerUp();
   drag = null;
   els.stage.classList.remove("dragging");
   updateCoordHud();
 });
 
 els.stage.addEventListener("pointercancel", () => {
+  attackTrailEditor?.pointerUp();
   drag = null;
   pointerStagePoint = null;
   els.stage.classList.remove("dragging");
@@ -6196,6 +6641,7 @@ els.stage.addEventListener("pointercancel", () => {
 });
 
 els.stage.addEventListener("lostpointercapture", () => {
+  attackTrailEditor?.pointerUp();
   drag = null;
   els.stage.classList.remove("dragging");
   updateCoordHud();
@@ -6261,6 +6707,7 @@ window.addEventListener("keyup", (event) => {
 });
 
 window.addEventListener("blur", () => {
+  resetUndoCoalescing();
   heldAttachmentTransformKeys.clear();
   if (!referenceFrameHiddenByKey) return;
   referenceFrameHiddenByKey = false;
@@ -6274,6 +6721,27 @@ window.addEventListener("beforeunload", (event) => {
 });
 
 window.addEventListener("resize", resizeCanvas);
+attackTrailEditor = new window.AttackTrailEditor({
+  ctx,
+  projectId: () => activeProjectId(),
+  projectKind: () => config?.projectKind || "godot",
+  group: () => currentGroup,
+  selectedFrame: () => selectedFrame,
+  currentImage: () => images[selectedFrame] || null,
+  assetUrl,
+  loadTexture: loadImageCached,
+  frameArrival: (frameIndex, framePhase) => attackTrailFrameArrival(frameIndex, framePhase),
+  animationElapsed: () => attackTrailAnimationElapsed(),
+  animationTiming: () => attackTrailAnimationTiming(),
+  localToScreen: (pointValue) => attackTrailLocalToScreen(pointValue),
+  screenToLocal: (pointValue) => attackTrailScreenToLocal(pointValue),
+  stagePoint,
+  dpr: () => devicePixelRatio,
+  markDirty,
+  pushUndo,
+  draw,
+  status: (message) => status(message),
+});
 requestAnimationFrame(animate);
 applyUiTheme();
 applyCanvasColor();

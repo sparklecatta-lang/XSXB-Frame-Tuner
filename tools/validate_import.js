@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { animationLooksAttack, frameBoxKey } = require("./box_estimator");
+const { EMPTY_ATTACK_TRAILS, normalizeAttackTrails, pngInfo } = require("./attack_trails");
 const { EMPTY_MANIFEST, EMPTY_TUNING, createProjectStore, slug } = require("./project_store");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -114,6 +115,7 @@ function validateImport(args) {
   const standaloneAnimations = animationMap(manifest);
   const localAudio = normalizeBindings(readJson(paths.frameAudio, []));
   const localAttachments = normalizeBindings(readJson(paths.frameImageAttachments, []));
+  const localAttackTrails = normalizeAttackTrails(readJson(paths.attackTrails, EMPTY_ATTACK_TRAILS));
   let frameCount = 0;
   let boxFrameCount = 0;
 
@@ -157,7 +159,8 @@ function validateImport(args) {
   const gameTuningPath = path.join(gameDataDir, "animation_tuning.json");
   const gameAudioPath = path.join(gameDataDir, "frame_audio_bindings.json");
   const gameAttachmentsPath = path.join(gameDataDir, "frame_image_attachments.json");
-  for (const filePath of [gameManifestPath, gameTuningPath, gameAudioPath, gameAttachmentsPath]) {
+  const gameAttackTrailsPath = path.join(gameDataDir, "attack_trails.json");
+  for (const filePath of [gameManifestPath, gameTuningPath, gameAudioPath, gameAttachmentsPath, gameAttackTrailsPath]) {
     if (!filePath || !fs.existsSync(filePath)) errors.push(`Game-local XSXB data file is missing: ${filePath}`);
   }
 
@@ -184,6 +187,7 @@ function validateImport(args) {
 
   const gameAudio = normalizeBindings(readJson(gameAudioPath, []));
   const gameAttachments = normalizeBindings(readJson(gameAttachmentsPath, []));
+  const gameAttackTrails = normalizeAttackTrails(readJson(gameAttackTrailsPath, EMPTY_ATTACK_TRAILS));
   if (localAudio.length !== gameAudio.length) errors.push(`Frame audio binding count mismatch (${localAudio.length} local, ${gameAudio.length} game-local).`);
   if (localAttachments.length !== gameAttachments.length) errors.push(`Frame attachment count mismatch (${localAttachments.length} local, ${gameAttachments.length} game-local).`);
   for (const binding of [...gameAudio, ...gameAttachments]) {
@@ -195,15 +199,70 @@ function validateImport(args) {
     if (diskPath && !fs.existsSync(diskPath)) errors.push(`${key}: bound game asset is missing: ${assetPath}`);
   }
 
+  let attackTrailSegments = 0;
+  let attackTrailSticks = 0;
+  for (const [key, localSegments] of Object.entries(localAttackTrails.bindings)) {
+    const gameSegments = gameAttackTrails.bindings[key] || [];
+    if (localSegments.length !== gameSegments.length) {
+      errors.push(`${key}: attack trail segment count mismatch (${localSegments.length} local, ${gameSegments.length} game-local).`);
+    }
+    localSegments.forEach((segment, index) => {
+      attackTrailSegments += 1;
+      attackTrailSticks += segment.sticks.length;
+      if (!standaloneAnimations.has(key)) errors.push(`${key}/${segment.id}: attack trail animation binding is missing.`);
+      if (segment.sticks.length < 2) errors.push(`${key}/${segment.id}: attack trail requires at least two sticks.`);
+      for (let stickIndex = 1; stickIndex < segment.sticks.length; stickIndex += 1) {
+        const previous = segment.sticks[stickIndex - 1];
+        const current = segment.sticks[stickIndex];
+        if (current.frame < previous.frame || (current.frame === previous.frame && current.framePhase < previous.framePhase)) {
+          errors.push(`${key}/${segment.id}: attack trail stick times are not ordered at stick ${stickIndex + 1}.`);
+        }
+      }
+      const gameSegment = gameSegments[index];
+      if (!gameSegment) return;
+      const gameTexture = String(gameSegment.texture?.path || "");
+      if (!gameTexture.startsWith("res://")) {
+        errors.push(`${key}/${segment.id}: game-local attack trail texture is not a res:// path.`);
+        return;
+      }
+      const diskPath = path.join(projectRoot, gameTexture.slice("res://".length));
+      if (!fs.existsSync(diskPath)) {
+        errors.push(`${key}/${segment.id}: game-local attack trail texture is missing: ${gameTexture}`);
+        return;
+      }
+      const textureInfo = pngInfo(fs.readFileSync(diskPath));
+      if (segment.colorMode === "original" && !textureInfo.hasEffectiveAlpha) {
+        errors.push(`${key}/${segment.id}: original-color attack trail texture lacks effective alpha.`);
+      }
+      const comparableLocal = JSON.parse(JSON.stringify(segment));
+      const comparableGame = JSON.parse(JSON.stringify(gameSegment));
+      comparableLocal.texture.path = comparableGame.texture.path;
+      if (JSON.stringify(comparableLocal) !== JSON.stringify(comparableGame)) {
+        errors.push(`${key}/${segment.id}: standalone and game-local attack trail data differ.`);
+      }
+    });
+  }
+  for (const key of Object.keys(gameAttackTrails.bindings)) {
+    if (!localAttackTrails.bindings[key]) errors.push(`${key}: unexpected game-local attack trail binding.`);
+  }
+
   const runtimeDir = path.join(projectRoot, "xsxb_frame_tuner", "runtime");
   const runtimeScriptPath = path.join(runtimeDir, "xsxb_frame_actor.gd");
-  for (const fileName of ["xsxb_frame_actor.gd", "xsxb_frame_actor.tscn", "xsxb_runtime_test.tscn"]) {
+  for (const fileName of [
+    "xsxb_frame_actor.gd",
+    "xsxb_frame_actor.tscn",
+    "xsxb_runtime_test.tscn",
+    "xsxb_attack_trail_renderer.gd",
+    "xsxb_attack_trail.gdshader",
+  ]) {
     if (!fs.existsSync(path.join(runtimeDir, fileName))) errors.push(`Generated runtime file is missing: ${fileName}`);
   }
   const runtimeSource = fs.existsSync(runtimeScriptPath) ? fs.readFileSync(runtimeScriptPath, "utf8") : "";
   const runtimeRequirements = [
     ["frame_audio_bindings.json", /frame_audio_bindings\.json/],
     ["frame_image_attachments.json", /frame_image_attachments\.json/],
+    ["attack_trails.json", /attack_trails\.json/],
+    ["attack trail timing", /trail_frame_arrival_time/],
     ["group playback overrides", /__group/],
     ["idempotent playback", /_current_animation\s*==\s*animation_name[\s\S]{0,300}\brestart\b/],
     ["animation duration", /func\s+animation_duration\s*\(/],
@@ -243,6 +302,8 @@ function validateImport(args) {
       actorFramesWithBoxes: boxFrameCount,
       frameAudioBindings: gameAudio.length,
       frameImageAttachments: gameAttachments.length,
+      attackTrailSegments,
+      attackTrailSticks,
     },
   };
 }

@@ -7,7 +7,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node tools/animation_tuner/server.js",
-    "check": "node --check tools/animation_tuner/server.js && node --check tools/animation_tuner/public/app.js && node --check tools/import_frames.js && node --check tools/import_batch.js && node --check tools/import_spriteframes.js && node --check tools/validate_import.js && node --check tools/godot_sync.js && node --check tools/godot_runtime.js && node --check tools/updater.js && node --check tools/self_test.js",
+    "check": "node --check tools/animation_tuner/server.js && node --check tools/animation_tuner/public/timing_modes.js && node --check tools/animation_tuner/public/app.js && node --check tools/animation_tuner/public/attack_trails.js && node --check tools/attack_trails.js && node --check tools/scene_profiles.js && node --check tools/codex_pets.js && node --check tools/import_frames.js && node --check tools/import_batch.js && node --check tools/import_spriteframes.js && node --check tools/validate_import.js && node --check tools/godot_sync.js && node --check tools/godot_runtime.js && node --check tools/updater.js && node --check tools/self_test.js",
     "test": "node tools/self_test.js"
   },
   "engines": {

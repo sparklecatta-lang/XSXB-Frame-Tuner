@@ -37,6 +37,7 @@
         </label>
         <div class="buttonRow projectActions">
           <button id="refreshProject" class="secondary" data-i18n="refreshAnimationList">刷新动画列表</button>
+          <button id="addCodexPet" class="secondary" data-i18n="addCodexPet" hidden>＋ 导入新宠物</button>
         </div>
         <label class="field languageField">
           <span data-i18n="language">语言</span>
@@ -47,11 +48,11 @@
         </label>
         <div class="characterGroupGrid">
           <label class="field">
-            <span data-i18n="character">角色</span>
+            <span id="profileFieldLabel" data-i18n="character">角色</span>
             <select id="profileSelect"></select>
           </label>
           <label class="field">
-            <span data-i18n="group">组</span>
+            <span id="groupFieldLabel" data-i18n="group">组</span>
             <select id="groupSelect"></select>
           </label>
         </div>
@@ -103,6 +104,66 @@
             <label class="toggle"><input id="frameDisabled" type="checkbox" /><span data-i18n="disableFrame">禁用此帧</span></label>
           </div>
         </details>
+        <details id="attackTrailPanel" class="panel attackTrailPanel" data-panel="attack-trails" hidden>
+          <summary><h2>攻击拖尾</h2></summary>
+          <label class="toggle"><input id="attackTrailMode" type="checkbox" /><span>攻击拖尾模式</span></label>
+          <div id="attackTrailBody" class="attackTrailBody" hidden>
+            <div class="attackTrailRow trailSegmentRow">
+              <select id="attackTrailSegment"></select>
+              <button id="attackTrailNew" type="button" class="secondary">新增段</button>
+              <button id="attackTrailDelete" type="button" class="dangerMini">删除</button>
+            </div>
+            <div class="attackTrailRow trailStickActionRow">
+              <button id="attackTrailAddStick" type="button" class="secondary">加棍子</button>
+              <button id="attackTrailDeleteStick" type="button" class="dangerMini" title="删除当前选中的棍子">删棍子</button>
+              <button id="attackTrailLayerToggle" type="button" class="secondary trailLayerToggle" title="点击切换当前选中棍子的前后图层">角色后</button>
+              <button id="attackTrailReverse" type="button" class="secondary" title="交换当前棍子的两个端点，并保持箭头运动方向不变">翻棍面</button>
+            </div>
+            <div class="trailTextureBox">
+              <input id="attackTrailTextureFile" type="file" accept="image/png,.png" hidden />
+              <button id="attackTrailTextureBrowse" type="button" class="secondary">浏览 / 替换 PNG</button>
+              <span id="attackTrailTextureName" class="trailTextureName">尚未导入 PNG</span>
+              <canvas id="attackTrailTexturePreview" class="trailTexturePreview" width="720" height="116" aria-label="拖尾纹理与头部弧度预览"></canvas>
+              <label class="trailHeadCurveControl">
+                <span>头部弧度</span>
+                <input id="attackTrailHeadCurvature" type="range" min="-100" max="100" step="1" value="0" title="正值固定原直边中点，只让上缘和下缘向运动后方收弯；0 为直边。" />
+                <output id="attackTrailHeadCurvatureValue">0</output>
+              </label>
+              <p class="trailHeadCurveHelp">正值固定原直边中点，只让上缘和下缘向拖尾后方收弯。弧的中点始终是原来的位置；虚线是调整前的直边。</p>
+            </div>
+            <div class="attackTrailGrid trailAppearanceGrid">
+              <label class="field"><span>颜色模式</span><select id="attackTrailColorMode"><option value="solid">单色</option><option value="gradient">渐变</option><option value="original">使用贴图原色（需有效 Alpha）</option></select></label>
+              <label class="field"><span>拖尾颜色</span><input id="attackTrailColor" type="color" value="#d9364a" /></label>
+              <button id="attackTrailPickColor" type="button" class="secondary">从角色吸色</button>
+            </div>
+            <div id="attackTrailGradientEditor" class="trailGradientEditor" hidden>
+              <div id="attackTrailGradientBar" class="trailGradientBar" tabindex="0" role="application" aria-label="拖尾渐变色带；单击添加节点，拖动节点调整位置，按 Delete 删除节点"></div>
+              <div class="trailGradientNodeRow">
+                <label class="field trailGradientColorField"><span>节点颜色</span><input id="attackTrailGradientColor" type="color" value="#d9364a" /></label>
+                <output id="attackTrailGradientPosition" class="trailGradientPosition">0%</output>
+              </div>
+              <p class="trailGradientHelp">左 → 右对应贴图下 → 上。单击色带添加节点，左右拖动调整位置，选中后按 Delete 删除。</p>
+            </div>
+            <details class="trailMotionSettings">
+              <summary>动态与细腻度</summary>
+              <div class="attackTrailGrid trailMotionGrid">
+              <label class="number"><span>终点前拖后 ms</span><input id="attackTrailBeforeTimeMs" type="number" min="0" max="60000" step="1" inputmode="numeric" title="头部到终点时，尾部落后的等效时间。只显示整数毫秒。" /></label>
+              <label class="number"><span>终点后收拢 ms</span><input id="attackTrailAfterTimeMs" type="number" min="1" max="60000" step="1" inputmode="numeric" title="头部停止后，尾部完全追上所需时间。只显示整数毫秒。" /></label>
+              <label class="number"><span>尾端采样点</span><input id="attackTrailTailSamples" type="number" min="4" max="8" step="1" /></label>
+              <label class="number trailSmoothnessField"><span>拖尾细腻度</span><input id="attackTrailPathColumns" type="number" min="8" max="96" step="1" value="20" title="沿运动方向的网格分段数。推荐 20；越高越顺滑，也更耗性能。" /></label>
+              <label class="number trailTransparencyField"><span>透明渐隐起点 X%</span><input id="attackTrailTailFadeStart" type="number" min="0" max="95" step="1" title="控制 J 形透明度曲线从纹理横向哪个位置开始抬升。" /></label>
+              <p class="trailSmoothnessHelp">控制弯曲处的细腻程度。推荐 20；数值越高越顺滑，也越耗性能，不会改变棍子路径。</p>
+              <p class="trailTransparencyHelp">头部到这个 X 位置保持原纹理不透明度，之后透明度按 J 形曲线加速增加，最右端固定完全透明。</p>
+              <p class="trailChaseHelp">终点前默认拖后本段运动时间的 0.5×；终点后默认以 2× 速度追赶，因此收拢时间为拖后时间的一半。界面统一显示整数毫秒。</p>
+              </div>
+            </details>
+            <div class="trailStickBox">
+              <div class="trailLayerLegend"><span class="behind">蓝色：角色后</span><span class="front">橙色：角色前</span></div>
+              <p class="trailDirectionHelp">拖动箭头端点：方向控制贴图头部穿过后的出射方向；手柄越长，转弯越平缓，越短则越紧。</p>
+              <p id="attackTrailTimingSummary" class="trailTimingSummary"></p>
+            </div>
+          </div>
+        </details>
         <details class="panel" data-panel="boxes">
           <summary><h2 data-i18n="boxes">碰撞框</h2></summary>
           <label class="toggle"><input id="showBoxes" type="checkbox" /><span data-i18n="showBoxes">显示框体</span></label>
@@ -140,6 +201,7 @@
             <div class="historyControls">
               <button id="playPause" class="secondary iconButton playButton" data-i18n-title="play" title="播放">播放</button>
               <button id="ghostToggle" class="secondary iconButton active" data-i18n-title="ghost" title="残影">影</button>
+              <button id="attackTrailGuideToggle" class="secondary iconButton" type="button" title="显示攻击拖尾棍子" aria-pressed="false">棍</button>
               <button id="undoTop" class="secondary iconButton" data-i18n-title="undo" title="撤销">&larr;</button>
               <button id="redoTop" class="secondary iconButton" data-i18n-title="redo" title="重做">&rarr;</button>
             </div>
@@ -150,6 +212,8 @@
         <div id="filmstrip" class="filmstrip"></div>
       </section>
     </main>
+    <script src="/timing_modes.js"></script>
+    <script src="/attack_trails.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

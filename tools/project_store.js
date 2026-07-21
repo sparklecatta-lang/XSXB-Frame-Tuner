@@ -111,6 +111,7 @@ function projectPaths(root, project) {
     tuning: path.join(dataDir, "animation_tuning.json"),
     frameAudio: path.join(dataDir, "frame_audio_bindings.json"),
     frameImageAttachments: path.join(dataDir, "frame_image_attachments.json"),
+    attackTrails: path.join(dataDir, "attack_trails.json"),
   };
 }
 
@@ -139,6 +140,9 @@ function ensureProjectFiles(root, project) {
   if (!fs.existsSync(paths.frameImageAttachments)) {
     writeJson(paths.frameImageAttachments, []);
   }
+  if (!fs.existsSync(paths.attackTrails)) {
+    writeJson(paths.attackTrails, { schemaVersion: 2, bindings: {} });
+  }
 }
 
 function normalizeProject(raw, usedIds, fallback) {
@@ -147,7 +151,9 @@ function normalizeProject(raw, usedIds, fallback) {
   return {
     id,
     label: String(source.label || source.name || id),
+    kind: String(source.kind || "godot"),
     projectRoot: String(source.projectRoot || source.root || ""),
+    petRoot: String(source.petRoot || ""),
     dataDir: reslash(source.dataDir || `data/projects/${id}`),
     workspaceDir: reslash(source.workspaceDir || `workspace/projects/${id}`),
   };
@@ -239,7 +245,9 @@ function createProjectStore(root) {
     const project = {
       id,
       label,
+      kind: String(payload.kind || "godot"),
       projectRoot,
+      petRoot: String(payload.petRoot || ""),
       dataDir: `data/projects/${id}`,
       workspaceDir: `workspace/projects/${id}`,
     };
@@ -253,7 +261,9 @@ function createProjectStore(root) {
     return {
       id: project.id,
       label: project.label,
+      kind: project.kind || "godot",
       projectRoot: project.projectRoot,
+      petRoot: project.petRoot || "",
       dataDir: reslash(project.dataDir),
       workspaceDir: reslash(project.workspaceDir),
       dataPath: paths.dataDir,

@@ -1,6 +1,6 @@
 ---
 name: xsxb-frame-tuner
-description: Batch-import one or many PNG frame folders or Godot SpriteFrames into XSXB Frame Tuner and wire a complete playable Godot runtime with saved hit/hurt/collision boxes, frame timing, SFX, image attachments, scene scale, facing, and WYSIWYG transforms. Use when the user asks to add a character, add or replace one or many animations/actions, import frame sequences, connect gameplay to XSXB, tune boxes/SFX/attachments, or says 添加角色, 批量添加动画, 一句话导入多组动画, 新动作, 接入角色, 接入 tuner, 接入 XSXB, 帧动画调参, 碰撞框, 音效, 附加帧, 场景系数.
+description: Batch-import PNG folders or Godot SpriteFrames into XSXB Frame Tuner, wire a complete playable Godot runtime, and manage the unified Codex Pets project containing built-in and custom pets. Use for character/animation import, gameplay wiring, boxes/SFX/attachments, Codex pet tuning, pet atlas import, or requests mentioning 添加角色, 接入 tuner, Codex 宠物, 预设宠物, 新建宠物, or 宠物图集.
 ---
 
 # XSXB Frame Tuner
@@ -16,6 +16,17 @@ For every actor import, animation import, replacement, or gameplay wiring task, 
 - [references/validation.md](references/validation.md) for completion gates and commands.
 
 When modifying the tuner web UI or save payload, also read [references/ui-contract.md](references/ui-contract.md).
+
+## Codex Pets Project
+
+The Tuner automatically maintains one `codex_pets` project. Treat it as a non-Godot project with these rules:
+
+- Discover current built-in pets from the installed Codex app and custom pets from `${CODEX_HOME:-$HOME/.codex}/pets`.
+- Support both v1 `1536x1872` atlases (8 columns × 9 animation rows) and v2 `1536x2288` atlases (the same 9 rows plus 16 look-direction cells across rows 9-10).
+- Keep built-in pets read-only. Tuner-only transforms may be saved, but never write into the installed Codex app package.
+- Save custom pet transforms back into its fixed-cell `spritesheet.webp`; preserve the first pre-Tuner source as `spritesheet.xsxb-backup.webp`.
+- A pet created externally by Hatch Pet must appear after Refresh without a manual XSXB import. The web UI may also import a conforming WebP and create `pet.json` plus `spritesheet.webp` together.
+- Do not run Godot runtime generation, gameplay validation, box generation, scene scanning, SFX sync, or attachment sync for the Codex Pets project.
 
 ## Completion Contract
 

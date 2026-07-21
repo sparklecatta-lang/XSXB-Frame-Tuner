@@ -60,10 +60,12 @@ var _frame_playback_overrides: Dictionary = {}
 var _frame_box_overrides: Dictionary = {}
 var _frame_audio_bindings: Dictionary = {}
 var _frame_image_attachments: Dictionary = {}
+var _attack_trail_bindings: Dictionary = {}
 var _texture_cache: Dictionary = {}
 var _current_animation: String = ""
 var _current_frame: int = 0
 var _frame_clock: float = 0.0
+var _manual_frame_control: bool = false
 var _runtime_ready: bool = false
 var _animation_finished: bool = false
 var _last_audio_key: String = ""
@@ -76,6 +78,8 @@ var _entered_hitbox_snapshots: Array = []
 @onready var _frame_sprite: Sprite2D = get_node_or_null("VisualOwner/FrameSprite") as Sprite2D
 @onready var _attachments_below: Node2D = get_node_or_null("VisualOwner/AttachmentsBelow") as Node2D
 @onready var _attachments_above: Node2D = get_node_or_null("VisualOwner/AttachmentsAbove") as Node2D
+@onready var _attack_trails_behind: Node2D = get_node_or_null("AttackTrailsBehind") as Node2D
+@onready var _attack_trails_front: Node2D = get_node_or_null("AttackTrailsFront") as Node2D
 @onready var _body_collision: CollisionShape2D = get_node_or_null("CollisionShape2D") as CollisionShape2D
 @onready var _hurtbox_area: Area2D = get_node_or_null("Hurtbox") as Area2D
 @onready var _hurtbox_collision: CollisionShape2D = get_node_or_null("Hurtbox/CollisionShape2D") as CollisionShape2D
@@ -93,6 +97,9 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	if not _runtime_ready or _current_animation == "":
+		return
+	if _manual_frame_control:
+		_apply_frame_visual()
 		return
 	_frame_clock += delta
 	while _frame_clock >= _current_frame_duration():
@@ -121,6 +128,7 @@ func play_frame_animation(animation_name: String, should_loop: bool = true, rest
 		_apply_frame_visual()
 		return
 	_current_animation = animation_name
+	_manual_frame_control = false
 	_current_frame = 0
 	_frame_clock = 0.0
 	loop_animation = should_loop
@@ -134,6 +142,94 @@ func play_frame_animation(animation_name: String, should_loop: bool = true, rest
 
 func restart_frame_animation(animation_name: String, should_loop: bool = true) -> void:
 	play_frame_animation(animation_name, should_loop, true)
+
+
+func set_manual_frame_control(enabled: bool) -> void:
+	_manual_frame_control = enabled
+	_frame_clock = 0.0
+
+
+func show_frame(animation_name: String, frame_index: int) -> bool:
+	if not _animations.has(animation_name):
+		return false
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	if frames.is_empty():
+		return false
+	var next_frame: int = clampi(frame_index, 0, frames.size() - 1)
+	var entered_frame: bool = _current_animation != animation_name or _current_frame != next_frame
+	_current_animation = animation_name
+	_current_frame = next_frame
+	_manual_frame_control = true
+	_animation_finished = false
+	if entered_frame:
+		_frame_visit_serial += 1
+		_record_entered_hitbox_snapshot()
+		_play_current_frame_audio()
+	_apply_frame_visual()
+	return true
+
+
+func animation_fps(animation_name: String) -> float:
+	return _animation_fps(animation_name)
+
+
+func has_frame_animation(animation_name: String) -> bool:
+	return _animations.has(animation_name)
+
+
+func frame_duration_multiplier(animation_name: String, frame_index: int) -> float:
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	if frame_index < 0 or frame_index >= frames.size():
+		return 1.0
+	var frame_value: Variant = frames[frame_index]
+	var source_duration: float = float(frame_value.get("duration", 1.0)) if frame_value is Dictionary else 1.0
+	var playback: Dictionary = _frame_playback_overrides.get(_frame_key(animation_name, frame_index), {})
+	return maxf(0.001, float(playback.get("duration", source_duration)))
+
+
+func frame_disabled(animation_name: String, frame_index: int) -> bool:
+	return _frame_is_disabled(animation_name, frame_index)
+
+
+func trail_frame_arrival_time(animation_name: String, frame_index: int, frame_phase: float) -> float:
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	var clamped_frame := clampi(frame_index, 0, maxi(0, frames.size() - 1))
+	var elapsed := 0.0
+	for index in range(clamped_frame):
+		if not _frame_is_disabled(animation_name, index):
+			elapsed += _frame_duration_for(animation_name, index)
+	if not _frame_is_disabled(animation_name, clamped_frame):
+		elapsed += _frame_duration_for(animation_name, clamped_frame) * clampf(frame_phase, 0.0, 1.0)
+	return elapsed
+
+
+func current_animation_elapsed() -> float:
+	if _current_animation == "":
+		return 0.0
+	var elapsed := 0.0
+	for index in range(_current_frame):
+		if not _frame_is_disabled(_current_animation, index):
+			elapsed += _frame_duration_for(_current_animation, index)
+	if not _frame_is_disabled(_current_animation, _current_frame):
+		elapsed += clampf(_frame_clock, 0.0, _frame_duration_for(_current_animation, _current_frame))
+	return elapsed
+
+
+func trail_quantized_animation_elapsed(animation_name: String) -> float:
+	var elapsed := current_animation_elapsed()
+	if animation_name == "" or animation_name != _current_animation or _manual_frame_control:
+		return elapsed
+	var frame_start := trail_frame_arrival_time(animation_name, _current_frame, 0.0)
+	var frame_duration := _frame_duration_for(animation_name, _current_frame)
+	var base_duration := 1.0 / _animation_fps(animation_name)
+	var subdivisions := clampi(roundi(frame_duration / maxf(0.000001, base_duration)), 1, 64)
+	var step := frame_duration / float(subdivisions)
+	var elapsed_in_frame := clampf(elapsed - frame_start, 0.0, maxf(0.0, frame_duration - 0.000001))
+	var sample_index := mini(subdivisions - 1, floori(elapsed_in_frame / maxf(0.000001, step)))
+	return frame_start + (float(sample_index) + 0.5) * step
 
 
 func animation_duration(animation_name: String) -> float:
@@ -152,6 +248,17 @@ func animation_duration(animation_name: String) -> float:
 			frame_duration = float(frame_value.get("duration", 1.0))
 		duration_units += maxf(0.001, float(playback.get("duration", frame_duration)))
 	return maxf(0.001, duration_units / _animation_fps(animation_name))
+
+
+func animation_last_playable_frame_start(animation_name: String) -> float:
+	if not _animations.has(animation_name):
+		return 0.0
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	for index in range(frames.size() - 1, -1, -1):
+		if not _frame_is_disabled(animation_name, index):
+			return trail_frame_arrival_time(animation_name, index, 0.0)
+	return 0.0
 
 
 func current_animation_duration() -> float:
@@ -301,6 +408,12 @@ func _ensure_runtime_nodes() -> void:
 		_attachments_below = Node2D.new()
 		_attachments_below.name = "AttachmentsBelow"
 		_visual_owner.add_child(_attachments_below)
+	if _attack_trails_behind == null:
+		_attack_trails_behind = Node2D.new()
+		_attack_trails_behind.name = "AttackTrailsBehind"
+		_attack_trails_behind.set_script(load("res://xsxb_frame_tuner/runtime/xsxb_attack_trail_renderer.gd"))
+		add_child(_attack_trails_behind)
+		move_child(_attack_trails_behind, _visual_owner.get_index())
 	if _frame_sprite == null:
 		_frame_sprite = Sprite2D.new()
 		_frame_sprite.name = "FrameSprite"
@@ -309,6 +422,12 @@ func _ensure_runtime_nodes() -> void:
 		_attachments_above = Node2D.new()
 		_attachments_above.name = "AttachmentsAbove"
 		_visual_owner.add_child(_attachments_above)
+	if _attack_trails_front == null:
+		_attack_trails_front = Node2D.new()
+		_attack_trails_front.name = "AttackTrailsFront"
+		_attack_trails_front.set_script(load("res://xsxb_frame_tuner/runtime/xsxb_attack_trail_renderer.gd"))
+		add_child(_attack_trails_front)
+		move_child(_attack_trails_front, _visual_owner.get_index() + 1)
 	if _body_collision == null:
 		_body_collision = CollisionShape2D.new()
 		_body_collision.name = "CollisionShape2D"
@@ -361,6 +480,7 @@ func _load_frame_runtime() -> void:
 	_frame_box_overrides.clear()
 	_frame_audio_bindings.clear()
 	_frame_image_attachments.clear()
+	_attack_trail_bindings.clear()
 	_texture_cache.clear()
 	_runtime_ready = false
 
@@ -380,6 +500,9 @@ func _load_frame_runtime() -> void:
 	_frame_box_overrides = _dict_from(tuning.get("frame_box_overrides", {}))
 	_load_frame_audio_bindings("%s/frame_audio_bindings.json" % data_dir)
 	_load_frame_image_attachments("%s/frame_image_attachments.json" % data_dir)
+	var attack_trails: Dictionary = _read_json_dict("%s/attack_trails.json" % data_dir)
+	_attack_trail_bindings = _dict_from(attack_trails.get("bindings", {}))
+	_configure_attack_trails()
 	_runtime_ready = not _animations.is_empty()
 
 
@@ -539,6 +662,16 @@ func _current_frame_duration() -> float:
 	return maxf(0.001, float(playback.get("duration", frame_data.get("duration", 1.0))) / _animation_fps(_current_animation))
 
 
+func _frame_duration_for(animation_name: String, frame_index: int) -> float:
+	var animation: Dictionary = _animations.get(animation_name, {})
+	var frames: Array = animation.get("frames", []) as Array
+	if frame_index < 0 or frame_index >= frames.size():
+		return 0.0
+	var frame_data: Dictionary = frames[frame_index] as Dictionary
+	var playback: Dictionary = _frame_playback_overrides.get(_frame_key(animation_name, frame_index), {})
+	return maxf(0.001, float(playback.get("duration", frame_data.get("duration", 1.0))) / _animation_fps(animation_name))
+
+
 func _frame_is_disabled(animation_name: String, frame_index: int) -> bool:
 	var playback: Dictionary = _frame_playback_overrides.get(_frame_key(animation_name, frame_index), {})
 	return playback.get("disabled", false) == true
@@ -613,10 +746,58 @@ func _apply_frame_visual() -> void:
 	var frame_key: String = _frame_key(_current_animation, _current_frame)
 	_play_current_frame_audio()
 	_apply_frame_image_attachments(frame_key)
+	_apply_attack_trail_transform()
+	_update_attack_trails()
 	if use_frame_boxes:
 		_apply_frame_collision_box(frame_key, transform, runtime_scale)
 		_apply_frame_hurtbox(frame_key, transform, runtime_scale)
 		_apply_frame_hitbox(frame_key, transform, runtime_scale)
+
+
+func _configure_attack_trails() -> void:
+	if _attack_trails_behind != null and _attack_trails_behind.has_method("configure"):
+		_attack_trails_behind.call("configure", self, _attack_trail_bindings, "behind")
+	if _attack_trails_front != null and _attack_trails_front.has_method("configure"):
+		_attack_trails_front.call("configure", self, _attack_trail_bindings, "front")
+
+
+func _update_attack_trails() -> void:
+	var elapsed := trail_quantized_animation_elapsed(_current_animation)
+	if _attack_trails_behind != null and _attack_trails_behind.has_method("update_for_animation"):
+		_attack_trails_behind.call("update_for_animation", _current_animation, elapsed)
+	if _attack_trails_front != null and _attack_trails_front.has_method("update_for_animation"):
+		_attack_trails_front.call("update_for_animation", _current_animation, elapsed)
+
+
+func _apply_attack_trail_transform() -> void:
+	if _current_animation == "":
+		return
+	var animation: Dictionary = _animations.get(_current_animation, {})
+	var frames: Array = animation.get("frames", [])
+	if frames.is_empty():
+		return
+	var anchor_frame: Dictionary = frames[0]
+	var texture: Texture2D = anchor_frame.get("texture") as Texture2D
+	var fallback_width: float = float(texture.get_width()) if texture != null else 1.0
+	var fallback_height: float = float(texture.get_height()) if texture != null else 1.0
+	var frame_size := Vector2(float(anchor_frame.get("width", fallback_width)), float(anchor_frame.get("height", fallback_height)))
+	var transform: Dictionary = _group_visual_transform(_current_animation)
+	var runtime_scale: float = _character_scale() * scene_scale()
+	var scale_x: float = runtime_scale * float(transform.get("scale_x", 1.0))
+	var scale_y: float = runtime_scale * float(transform.get("scale_y", 1.0))
+	var visual_offset: Vector2 = transform.get("offset", Vector2.ZERO)
+	var anchor: Vector2 = _source_anchor(String(animation.get("anchor_mode", "canvas_bottom_center")), frame_size)
+	var facing: float = float(render_facing())
+	var trail_position := Vector2(
+		(visual_offset.x * runtime_scale * facing) + ((frame_size.x * 0.5 - anchor.x) * scale_x * facing),
+		(visual_offset.y * runtime_scale) + ((frame_size.y * 0.5 - anchor.y) * scale_y)
+	)
+	for trail_node in [_attack_trails_behind, _attack_trails_front]:
+		if trail_node == null:
+			continue
+		trail_node.position = trail_position
+		trail_node.scale = Vector2(facing * scale_x, scale_y)
+		trail_node.rotation_degrees = float(transform.get("rotation", 0.0)) * facing
 
 
 func _source_anchor(anchor_mode: String, frame_size: Vector2) -> Vector2:
@@ -628,6 +809,29 @@ func _source_anchor(anchor_mode: String, frame_size: Vector2) -> Vector2:
 
 
 func _combined_visual_transform(animation_name: String, frame_index: int) -> Dictionary:
+	var result: Dictionary = _group_visual_transform(animation_name)
+	var frame_override: Dictionary = _frame_visual_overrides.get(_frame_key(animation_name, frame_index), {})
+	if frame_override.is_empty():
+		return result
+	var character_scale: float = _character_scale()
+	var character_scale_vector: Vector2 = _scale_vector_from_value(_tuning_values.get("profiles.%s.character.visual_scale" % frame_profile_id, {}), Vector2(character_scale, character_scale))
+	var axis: Vector2 = Vector2.ONE
+	if character_scale != 0.0:
+		axis = character_scale_vector / character_scale
+	var group_scale: float = float(frame_override.get("visual_size", 1.0))
+	var base_group_scale: float = float(_tuning_values.get("profiles.%s.groups.%s.visual_size" % [frame_profile_id, animation_name], 1.0))
+	var base_scale_vector: Vector2 = _scale_vector_from_value(_tuning_values.get("profiles.%s.groups.%s.visual_scale" % [frame_profile_id, animation_name], {}), Vector2(base_group_scale, base_group_scale))
+	var group_scale_vector: Vector2 = _scale_vector_from_value(frame_override.get("visual_scale", {}), base_scale_vector if not frame_override.has("visual_size") else Vector2(group_scale, group_scale))
+	var base_offset: Vector2 = _vector_from_value(_tuning_values.get("profiles.%s.groups.%s.offset" % [frame_profile_id, animation_name], {}), Vector2.ZERO)
+	return {
+		"scale_x": group_scale_vector.x * axis.x,
+		"scale_y": group_scale_vector.y * axis.y,
+		"offset": _character_offset() + _vector_from_value(frame_override.get("offset", base_offset), base_offset),
+		"rotation": _character_rotation() + float(frame_override.get("rotation", result.get("rotation", 0.0) - _character_rotation())),
+	}
+
+
+func _group_visual_transform(animation_name: String) -> Dictionary:
 	var character_scale: float = _character_scale()
 	var character_scale_vector: Vector2 = _scale_vector_from_value(_tuning_values.get("profiles.%s.character.visual_scale" % frame_profile_id, {}), Vector2(character_scale, character_scale))
 	var axis: Vector2 = Vector2.ONE
@@ -639,13 +843,6 @@ func _combined_visual_transform(animation_name: String, frame_index: int) -> Dic
 	var group_scale_vector: Vector2 = _scale_vector_from_value(_tuning_values.get("%s.visual_scale" % group_base, {}), Vector2(group_scale, group_scale))
 	var group_offset: Vector2 = _vector_from_value(_tuning_values.get("%s.offset" % group_base, {}), Vector2.ZERO)
 	var group_rotation: float = float(_tuning_values.get("%s.rotation" % group_base, 0.0))
-
-	var frame_override: Dictionary = _frame_visual_overrides.get(_frame_key(animation_name, frame_index), {})
-	if not frame_override.is_empty():
-		group_scale = float(frame_override.get("visual_size", group_scale))
-		group_scale_vector = _scale_vector_from_value(frame_override.get("visual_scale", {}), group_scale_vector)
-		group_offset = _vector_from_value(frame_override.get("offset", group_offset), group_offset)
-		group_rotation = float(frame_override.get("rotation", group_rotation))
 
 	return {
 		"scale_x": group_scale_vector.x * axis.x,
@@ -874,9 +1071,10 @@ func _scale_vector_from_value(value: Variant, fallback: Vector2) -> Vector2:
 }
 
 function actorScene(projectId, target) {
-  return `[gd_scene load_steps=5 format=3]
+  return `[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://xsxb_frame_tuner/runtime/xsxb_frame_actor.gd" id="1_script"]
+[ext_resource type="Script" path="res://xsxb_frame_tuner/runtime/xsxb_attack_trail_renderer.gd" id="2_trail"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_body"]
 size = Vector2(40, 90)
@@ -893,6 +1091,9 @@ frame_project_id = ${gdString(projectId)}
 frame_profile_id = ${gdString(target.profileId)}
 frame_animation = ${gdString(target.animationId)}
 
+[node name="AttackTrailsBehind" type="Node2D" parent="."]
+script = ExtResource("2_trail")
+
 [node name="VisualOwner" type="Node2D" parent="."]
 
 [node name="AttachmentsBelow" type="Node2D" parent="VisualOwner"]
@@ -900,6 +1101,9 @@ frame_animation = ${gdString(target.animationId)}
 [node name="FrameSprite" type="Sprite2D" parent="VisualOwner"]
 
 [node name="AttachmentsAbove" type="Node2D" parent="VisualOwner"]
+
+[node name="AttackTrailsFront" type="Node2D" parent="."]
+script = ExtResource("2_trail")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
 shape = SubResource("RectangleShape2D_body")
@@ -952,6 +1156,14 @@ function ensureGodotRuntime(root, project, options = {}) {
     {
       path: path.join(runtimeDir, "xsxb_runtime_test.tscn"),
       content: testScene(),
+    },
+    {
+      path: path.join(runtimeDir, "xsxb_attack_trail_renderer.gd"),
+      content: fs.readFileSync(path.join(__dirname, "runtime", "xsxb_attack_trail_renderer.gd"), "utf8"),
+    },
+    {
+      path: path.join(runtimeDir, "xsxb_attack_trail.gdshader"),
+      content: fs.readFileSync(path.join(__dirname, "runtime", "xsxb_attack_trail.gdshader"), "utf8"),
     },
   ];
   const runtimeFiles = [];

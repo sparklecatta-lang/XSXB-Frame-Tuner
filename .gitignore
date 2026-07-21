@@ -13,6 +13,8 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+.tmp/
+screenshots/
 
 # Local tuner registry and per-project data.
 data/projects.json
