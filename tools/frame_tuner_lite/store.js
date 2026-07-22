@@ -13,7 +13,7 @@ const EMPTY_TUNING = Object.freeze({
 const EMPTY_SETTINGS = Object.freeze({
   schemaVersion: 1,
   canvas: { padding: 24, autoMeasured: false },
-  export: { fps: 12, sheetColumns: 8 },
+  export: { phaseDurationMs: 80, sheetColumns: 8 },
 });
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -94,6 +94,7 @@ function createLiteStore(root) {
       workspaceDir,
       manifest: path.join(dataDir, "animation_manifest.json"),
       tuning: path.join(dataDir, "animation_tuning.json"),
+      frameAudio: path.join(dataDir, "frame_audio_bindings.json"),
       frameImageAttachments: path.join(dataDir, "frame_image_attachments.json"),
       attackTrails: path.join(dataDir, "attack_trails.json"),
       settings: path.join(dataDir, "lite_settings.json"),
@@ -105,6 +106,7 @@ function createLiteStore(root) {
     fs.mkdirSync(path.join(target.workspaceDir, "assets"), { recursive: true });
     if (!fs.existsSync(target.manifest)) writeJson(target.manifest, EMPTY_MANIFEST);
     if (!fs.existsSync(target.tuning)) writeJson(target.tuning, EMPTY_TUNING);
+    if (!fs.existsSync(target.frameAudio)) writeJson(target.frameAudio, []);
     if (!fs.existsSync(target.frameImageAttachments)) writeJson(target.frameImageAttachments, []);
     if (!fs.existsSync(target.attackTrails)) writeJson(target.attackTrails, { schemaVersion: 8, bindings: {} });
     if (!fs.existsSync(target.settings)) writeJson(target.settings, EMPTY_SETTINGS);

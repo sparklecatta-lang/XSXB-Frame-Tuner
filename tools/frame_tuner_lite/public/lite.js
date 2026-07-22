@@ -13,11 +13,11 @@
         <div class="liteExportBody">
           <div class="liteCanvasGrid">
             <label class="number"><span>透明边距 px</span><input id="liteCanvasPadding" type="number" min="0" max="1024" step="1" value="24"></label>
-            <label class="number"><span>导出 FPS</span><input id="liteExportFps" type="number" min="0.1" max="240" step="1" value="12"></label>
+            <label class="number"><span>相位最长 ms</span><input id="litePhaseDurationMs" type="number" min="1" max="1000" step="1" value="80"></label>
             <label class="number"><span>Sheet 列数</span><input id="liteSheetColumns" type="number" min="1" max="64" step="1" value="8"></label>
           </div>
           <div class="liteCanvasResult"><span>全角色统一画布</span><strong id="liteCanvasResult">等待计算</strong></div>
-          <p class="liteExportHelp">先校准当前角色的所有动作、图层与拖尾。导出时会扫描该角色全部主动作组，使用同一画布尺寸和角色原点；附属图层会合成到所属动作，不重复导出。</p>
+          <p class="liteExportHelp">先校准当前角色的所有动作、图层、帧音效与拖尾。相位最长时长只决定一个源帧按真实毫秒时长拆成多少个拖尾采样；棍子数量只改变空间路径，不改变导出数量。把音频拖到帧卡即可绑定；导出时会扫描该角色全部主动作组，使用同一画布尺寸和角色原点，并把音效文件与播放帧写入 JSON。附属图层会合成到所属动作，不重复导出。</p>
           <button id="liteMeasureCanvas" type="button" class="secondary liteMeasureButton">重新计算全角色画布</button>
           <div class="liteExportActions">
             <button id="liteExportSequence" type="button" class="liteExportButton">导出 PNG 序列</button>
@@ -37,7 +37,7 @@
     document.querySelector("#liteExportSheet").addEventListener("click", () => exportOutput("sheet"));
     document.querySelector("#liteMeasureCanvas").addEventListener("click", measureCanvas);
     document.querySelector("#liteCanvasPadding").addEventListener("input", invalidateLayout);
-    document.querySelector("#liteExportFps").addEventListener("input", invalidateLayout);
+    document.querySelector("#litePhaseDurationMs").addEventListener("input", invalidateLayout);
     state.initialized = true;
     applyLiteLabels();
     syncSettings();
@@ -64,7 +64,7 @@
     if (!current) return;
     const settings = current.settings || {};
     input("liteCanvasPadding").value = Math.round(number(settings.canvas?.padding, 0, 1024, 24));
-    input("liteExportFps").value = number(settings.export?.fps, 0.1, 240, 12);
+    input("litePhaseDurationMs").value = Math.round(number(settings.export?.phaseDurationMs, 1, 1000, 80));
     input("liteSheetColumns").value = Math.round(number(settings.export?.sheetColumns, 1, 64, 8));
     state.layout = settings.canvas?.autoMeasured === true ? {
       width: Math.round(number(settings.canvas.width, 1, 8192, 1)),
@@ -82,7 +82,7 @@
   function options() {
     return {
       padding: Math.round(number(input("liteCanvasPadding").value, 0, 1024, 24)),
-      fps: number(input("liteExportFps").value, 0.1, 240, 12),
+      phaseDurationMs: Math.round(number(input("litePhaseDurationMs").value, 1, 1000, 80)),
       columns: Math.round(number(input("liteSheetColumns").value, 1, 64, 8)),
     };
   }
@@ -109,18 +109,20 @@
     };
   }
 
-  async function collectExportGroups(api, fps) {
+  async function collectExportGroups(api, phaseDurationMs) {
     const originalGroupId = api.current().groupId;
     const groups = api.exportGroups();
     const targets = [];
     try {
       for (const group of groups) {
         const current = await api.selectGroup(group.groupId);
+        const samples = api.timeline(phaseDurationMs);
         targets.push({
           ...group,
           profileId: current.profileId,
           animationId: current.animationId,
-          samples: api.timeline(fps),
+          samples,
+          audio: api.audio(phaseDurationMs, samples),
         });
       }
     } finally {
@@ -194,7 +196,7 @@
     input("liteExportSequence").disabled = true;
     input("liteExportSheet").disabled = true;
     try {
-      const batch = await collectExportGroups(api, config.fps);
+      const batch = await collectExportGroups(api, config.phaseDurationMs);
       if (!batch.targets.length) throw new Error("当前角色没有可导出的动作组。");
       state.layout = await calculateOptimalLayout(api, batch, config, status);
       renderLayout();
@@ -251,11 +253,16 @@
     await writeBlob(directory, filename, new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: "application/json" }));
   }
 
-  function sheetJson(metadataFrames, sheet, fps, canvas) {
+  function sheetJson(metadataFrames, sheet, phaseDurationMs, canvas, audio) {
+    const integerDurations = window.XsxbTimingModes.distributeIntegerMilliseconds(
+      metadataFrames.map((frame) => frame.durationMs),
+    );
     return {
-      frames: Object.fromEntries(metadataFrames.map((frame) => [frame.filename, {
+      frames: Object.fromEntries(metadataFrames.map((frame, index) => [frame.filename, {
         frame: { x: frame.x, y: frame.y, w: frame.width, h: frame.height },
-        duration: Math.max(1, Math.round(frame.durationMs)),
+        duration: integerDurations[index],
+        timeMs: Math.round(frame.time * 1000),
+        sourceFrameIndex: frame.sourceFrame,
         rotated: false,
         trimmed: false,
       }])),
@@ -265,9 +272,77 @@
         image: "spritesheet.png",
         format: "RGBA8888",
         size: { w: sheet.width, h: sheet.height },
-        frameRate: fps,
+        phaseDurationMs,
         canvas,
       },
+      audio,
+    };
+  }
+
+  function audioFileName(asset, index, used) {
+    const stableName = String(asset.path || "").split(/[\\/]/).pop();
+    const preferred = safeFolderName(stableName || asset.name || `audio_${index + 1}`, `audio_${index + 1}`);
+    const extension = /\.[a-z0-9]{2,5}$/i.exec(preferred)?.[0] || ({
+      "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/ogg": ".ogg", "audio/opus": ".opus",
+      "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/mp4": ".m4a", "audio/aac": ".aac",
+      "audio/flac": ".flac", "audio/webm": ".webm",
+    }[String(asset.type || "").toLowerCase()] || ".bin");
+    const stem = preferred.endsWith(extension) ? preferred.slice(0, -extension.length) : preferred;
+    let result = `${stem}${extension}`;
+    let suffix = 2;
+    while (used.has(result.toLowerCase())) result = `${stem}_${suffix++}${extension}`;
+    used.add(result.toLowerCase());
+    return result;
+  }
+
+  async function packageAudioAssets(targets, batchDirectory, status) {
+    const byIdentity = new Map();
+    const byKey = new Map();
+    const usedNames = new Set();
+    const allAssets = targets.flatMap((target) => target.audio?.assets || []);
+    if (!allAssets.length) return byKey;
+    const audioDirectory = await batchDirectory.getDirectoryHandle("audio", { create: true });
+    for (const asset of allAssets) {
+      const identity = String(asset.path || asset.source || asset.key || "");
+      let packaged = byIdentity.get(identity);
+      if (!packaged) {
+        status.textContent = `正在打包音效 ${byIdentity.size + 1}/${allAssets.length} · ${asset.name}`;
+        const response = await fetch(asset.source);
+        if (!response.ok) throw new Error(`无法读取音效：${asset.name}`);
+        const blob = await response.blob();
+        const fileName = audioFileName(asset, byIdentity.size, usedNames);
+        await writeBlob(audioDirectory, fileName, blob);
+        packaged = {
+          id: `audio_${byIdentity.size + 1}`,
+          name: asset.name || fileName,
+          file: `../audio/${fileName}`,
+          type: asset.type || blob.type || "",
+          size: blob.size,
+        };
+        byIdentity.set(identity, packaged);
+      }
+      byKey.set(asset.key, packaged);
+    }
+    return byKey;
+  }
+
+  function audioMetadata(target, packagedAudio) {
+    const events = (target.audio?.events || []).map((event) => {
+      const asset = packagedAudio.get(event.assetKey);
+      if (!asset) return null;
+      const { assetKey, ...timing } = event;
+      return { ...timing, assetId: asset.id, file: asset.file };
+    }).filter(Boolean);
+    const ids = new Set(events.map((event) => event.assetId));
+    const filesById = new Map(
+      [...packagedAudio.values()]
+        .filter((asset) => ids.has(asset.id))
+        .map((asset) => [asset.id, asset]),
+    );
+    return {
+      schemaVersion: 1,
+      files: [...filesById.values()],
+      events,
     };
   }
 
@@ -302,7 +377,7 @@
         mode: "readwrite",
         startIn: "downloads",
       });
-      const batch = await collectExportGroups(api, config.fps);
+      const batch = await collectExportGroups(api, config.phaseDurationMs);
       if (!batch.targets.length) throw new Error("当前角色没有可导出的动作组。");
       state.layout = await calculateOptimalLayout(api, batch, config, status);
       renderLayout();
@@ -310,16 +385,18 @@
       await postJson("/api/lite/settings", {
         projectId: current.projectId,
         canvas: { ...state.layout, autoMeasured: true },
-        export: { fps: config.fps, sheetColumns: config.columns },
+        export: { phaseDurationMs: config.phaseDurationMs, sheetColumns: config.columns },
       });
       const batchName = batchFolderName(current.profileId, kind);
       const batchDirectory = await chosenDirectory.getDirectoryHandle(batchName, { create: true });
+      const packagedAudio = await packageAudioAssets(batch.targets, batchDirectory, status);
       let totalFrames = 0;
       for (let groupIndex = 0; groupIndex < batch.targets.length; groupIndex += 1) {
         const target = batch.targets[groupIndex];
         const selected = await api.selectGroup(target.groupId);
         const targetDirectory = await batchDirectory.getDirectoryHandle(safeFolderName(selected.animationId), { create: true });
         const samples = target.samples;
+        const audio = audioMetadata(target, packagedAudio);
         const rows = Math.ceil(samples.length / config.columns);
         const sheetWidth = renderConfig.width * config.columns;
         const sheetHeight = renderConfig.height * rows;
@@ -362,19 +439,21 @@
         if (kind === "sheet") {
           status.textContent = `正在写入 ${groupIndex + 1}/${batch.targets.length} · ${target.name} Sheet + JSON`;
           await writeDataUrl(targetDirectory, "spritesheet.png", sheet.toDataURL("image/png"));
-          await writeJson(targetDirectory, "spritesheet.json", sheetJson(metadataFrames, { width: sheetWidth, height: sheetHeight }, config.fps, state.layout));
+          await writeJson(targetDirectory, "spritesheet.json", sheetJson(metadataFrames, { width: sheetWidth, height: sheetHeight }, config.phaseDurationMs, state.layout, audio));
         }
-        await writeJson(targetDirectory, "export.json", {
-          schemaVersion: 1,
-          profileId: selected.profileId,
-          animationId: selected.animationId,
-          canvas: { ...state.layout, autoMeasured: true },
-          fps: config.fps,
-          kind,
-          sheet: kind === "sheet" ? { file: "spritesheet.png", json: "spritesheet.json", columns: config.columns, rows, width: sheetWidth, height: sheetHeight } : null,
-          frames: metadataFrames,
-          completedAt: new Date().toISOString(),
-        });
+        if (kind === "sequence") {
+          await writeJson(targetDirectory, "export.json", {
+            schemaVersion: 1,
+            profileId: selected.profileId,
+            animationId: selected.animationId,
+            canvas: { ...state.layout, autoMeasured: true },
+            phaseDurationMs: config.phaseDurationMs,
+            kind,
+            audio,
+            frames: metadataFrames,
+            completedAt: new Date().toISOString(),
+          });
+        }
         totalFrames += samples.length;
       }
       status.textContent = kind === "sheet"

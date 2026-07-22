@@ -1354,11 +1354,18 @@ async function clearFrameAudioBinding(index = selectedFrame, group = currentGrou
 
 function playFrameAudio(index = selectedFrame, group = currentGroup) {
   const binding = frameAudioBinding(index, group);
-  const source = binding?.url || binding?.data || "";
+  const source = frameAudioSource(binding);
   if (!source) return;
   const audio = new Audio(source);
   audio.preload = "auto";
   audio.play().catch((error) => status(t("audioPreviewBlocked", { message: error.message })));
+}
+
+function frameAudioSource(binding) {
+  if (!binding) return "";
+  if (binding.url || binding.data) return binding.url || binding.data;
+  const assetPath = String(binding.path || binding.file || "");
+  return assetPath ? `/asset?path=${encodeURIComponent(assetPath)}` : "";
 }
 
 function blobToDataUrl(blob) {
@@ -1406,6 +1413,13 @@ async function syncFrameAudioBindingsToGame(options = {}) {
     });
     if (!res.ok) throw new Error(await res.text());
     const result = await res.json();
+    if (Array.isArray(result.frameAudioBindings)) {
+      for (const saved of result.frameAudioBindings) {
+        const key = frameAudioKeyFromBinding(saved);
+        if (!key || !frameAudioBindings[key]) continue;
+        frameAudioBindings[key] = { ...frameAudioBindings[key], ...saved, key };
+      }
+    }
     if (!silent) status(t("frameSfxSaved", { count: result.frameAudioCount || 0 }));
     return result;
   })();
@@ -1724,11 +1738,11 @@ async function loadConfig() {
   yechengPropFrameOverrides = structuredClone(config.yechengPropTuning?.frame_visual_overrides || {});
   loadFrameImageAttachmentsFromProject();
   resetFrameAudioBindings();
-  if (config.projectKind !== "frame_lite") {
+  if (config.projectKind !== "codex_pets") {
     loadFrameAudioBindingsFromProject();
     await loadFrameAudioBindingsFromDb();
   }
-  if (config.projectKind !== "frame_lite" && Object.keys(frameAudioBindings).length) {
+  if (config.projectKind !== "codex_pets" && Object.keys(frameAudioBindings).length) {
     await syncFrameAudioBindingsToGame({ silent: true }).catch((error) => {
       status(t("boxSyncFailed", { message: error.message }));
     });
@@ -4138,7 +4152,7 @@ function renderFilmstripGroup(group, label) {
     const playback = framePlayback(index, group);
     const item = document.createElement("button");
     const inSelection = isCurrent && selectedFrames.has(index) && !selectedAttachmentId;
-    const audioBinding = config?.projectKind === "frame_lite" ? null : frameAudioBinding(index, group);
+    const audioBinding = frameAudioBinding(index, group);
     item.className = `thumb ${inSelection ? "selected" : ""} ${isCurrent && index === selectedFrame ? "primary" : ""} ${isReferenceFrame(index, group) ? "reference" : ""} ${!isCurrent ? "chained" : ""} ${store[tuningFrameKey(index, group)] ? "overridden" : ""} ${playback.disabled ? "disabled" : ""} ${audioBinding ? "hasSfx" : ""}`;
     const sourceLabel = Array.isArray(group.sourceFrameIndices) && group.sourceFrameIndices.length ? ` (src ${sourceFrameIndex(index, group) + 1})` : "";
     item.title = `${label}${index + 1} - ${frame.name}${sourceLabel}`;
@@ -4206,10 +4220,6 @@ function renderFilmstripGroup(group, label) {
         return;
       }
       const file = audioFileFromList(event.dataTransfer?.files);
-      if (config?.projectKind === "frame_lite") {
-        status("Lite 只接受图片图层，不支持音效。");
-        return;
-      }
       if (!file) {
         status(t("dropImageFile"));
         return;
@@ -5158,16 +5168,70 @@ function liteFrameAtTime(timeSeconds, group = currentGroup) {
   return lastPlayable;
 }
 
-function liteExportTimeline(fps = 12) {
+function liteExportTimeline(maxPhaseDurationMs = 80) {
   if (!currentGroup?.frames?.length) return [];
-  const exportFps = Math.min(240, Math.max(0.1, Number(fps || 12)));
-  const animationDuration = groupPlaybackDurationSeconds(currentGroup);
+  const phaseDurationMs = Math.min(1000, Math.max(1, Number(maxPhaseDurationMs) || 80));
+  const playableFrames = [];
+  let animationDurationMs = 0;
+  for (let frameIndex = 0; frameIndex < currentGroup.frames.length; frameIndex += 1) {
+    if (framePlayback(frameIndex, currentGroup).disabled) continue;
+    const durationMs = frameDurationMs(frameIndex, currentGroup);
+    playableFrames.push({
+      frameIndex,
+      durationMs,
+    });
+    animationDurationMs += durationMs;
+  }
+  const animationDuration = animationDurationMs / 1000;
   const exportDuration = attackTrailEditor?.exportEndTime(animationDuration) || animationDuration;
-  const frameCount = Math.max(1, Math.ceil(exportDuration * exportFps) + 1);
-  return Array.from({ length: frameCount }, (_, index) => {
-    const time = Math.min(exportDuration, index / exportFps);
-    return { index, time, frameIndex: liteFrameAtTime(time), durationMs: Math.round(1000 / exportFps) };
-  });
+  return window.XsxbTimingModes.liteExportSamples(
+    playableFrames,
+    phaseDurationMs,
+    exportDuration * 1000,
+    attackTrailEditor?.hasExportTrail() === true,
+  );
+}
+
+function liteExportAudio(maxPhaseDurationMs = 80, samples = null) {
+  if (config?.projectKind !== "frame_lite" || !currentGroup?.frames?.length) return { assets: [], events: [] };
+  const timeline = Array.isArray(samples) ? samples : liteExportTimeline(maxPhaseDurationMs);
+  const assets = new Map();
+  const events = [];
+  let elapsedMs = 0;
+  for (let frameIndex = 0; frameIndex < currentGroup.frames.length; frameIndex += 1) {
+    if (framePlayback(frameIndex, currentGroup).disabled) continue;
+    const binding = frameAudioBinding(frameIndex, currentGroup);
+    if (binding) {
+      const key = frameAudioKey(frameIndex, currentGroup);
+      const source = frameAudioSource(binding);
+      if (source) {
+        if (!assets.has(key)) {
+          assets.set(key, {
+            key,
+            source,
+            path: String(binding.path || binding.file || ""),
+            name: binding.name || "audio",
+            type: binding.type || "",
+            size: Number(binding.size || 0),
+          });
+        }
+        const sample = timeline.find((entry) => Number(entry.time || 0) * 1000 + 0.001 >= elapsedMs) || timeline[timeline.length - 1];
+        const sourceIndex = sourceFrameIndex(frameIndex, currentGroup);
+        events.push({
+          outputFrame: Number(sample?.index || 0) + 1,
+          outputFrameIndex: Number(sample?.index || 0),
+          timeMs: Math.round(elapsedMs),
+          sourceFrame: sourceIndex + 1,
+          sourceFrameIndex: sourceIndex,
+          displayFrame: frameIndex + 1,
+          displayFrameIndex: frameIndex,
+          assetKey: key,
+        });
+      }
+    }
+    elapsedMs += frameDurationMs(frameIndex, currentGroup);
+  }
+  return { assets: [...assets.values()], events };
 }
 
 async function renderLiteExportFrame(sample, options = {}) {
@@ -5758,7 +5822,7 @@ async function save() {
   updateAdjustmentFromInputs();
   pruneNoopFrameOverrides();
   await ensureCollisionBoxOverridesForSave();
-  const frameAudioBindingsForSave = config?.projectKind === "frame_lite" ? [] : await collectFrameAudioBindingsForSave();
+  const frameAudioBindingsForSave = config?.projectKind === "codex_pets" ? [] : await collectFrameAudioBindingsForSave();
   const codexPetExportsForSave = await collectCodexPetExportsForSave();
   const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
     && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
@@ -6885,7 +6949,8 @@ window.XsxbFrameTunerLite = {
     frameCount: currentGroup?.frames?.length || 0,
     settings: structuredClone(config?.liteSettings || {}),
   }),
-  timeline: (fps) => liteExportTimeline(fps),
+  timeline: (phaseDurationMs) => liteExportTimeline(phaseDurationMs),
+  audio: (phaseDurationMs, samples) => liteExportAudio(phaseDurationMs, samples),
   renderFrame: (sample, options) => renderLiteExportFrame(sample, options),
   measureFrame: (sample, options) => renderLiteExportFrame(sample, { ...options, measureOnly: true }),
   exportGroups: () => (config?.groups || [])

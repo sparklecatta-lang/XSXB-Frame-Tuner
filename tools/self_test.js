@@ -9,11 +9,11 @@ const { runtimeScript } = require("./godot_runtime");
 const { profileIdsForSceneText } = require("./scene_profiles");
 const { ATLAS_HEIGHT, ATLAS_HEIGHT_V2, ATLAS_WIDTH, PET_STATES, parseWebpSize } = require("./codex_pets");
 const { normalizeAttackTrails, pngInfo, validateAttackTrails } = require("./attack_trails");
-const { averageFrameTiming, groupFpsForDuration, frameSynchronousEffectSample } = require("./animation_tuner/public/timing_modes");
+const { averageFrameTiming, groupFpsForDuration, frameSynchronousEffectSample, liteExportSamples, distributeIntegerMilliseconds } = require("./animation_tuner/public/timing_modes");
 const { candidateSkillTargets, resolveSkillTarget, syncSkillDirectory, trustedRemote } = require("./updater");
 const { withUtf8Charset } = require("./http_content_type");
 const { createLiteStore } = require("./frame_tuner_lite/store");
-const { cropFromEntry, frameEntries } = require("./frame_tuner_lite/import_sheet");
+const { cropFromEntry, frameEntries, importSheetAudio } = require("./frame_tuner_lite/import_sheet");
 
 assert.equal(withUtf8Charset("text/html"), "text/html; charset=utf-8");
 assert.equal(withUtf8Charset("text/css"), "text/css; charset=utf-8");
@@ -68,6 +68,28 @@ assert.deepEqual(
   [longTrailSampleA, longTrailSampleB, longTrailSampleC].map((sample) => Math.round(sample.time * 1000)),
   [25, 75, 125],
 );
+const sixPlayableFrames = [25, 25, 25, 25, 25, 135].map((durationMs, frameIndex) => ({
+  frameIndex,
+  durationMs,
+  // Export sampling must ignore stick-authored phases. Sticks shape the path only.
+  stickPhases: frameIndex === 4 ? [1 / 3, 2 / 3] : frameIndex === 5 ? [0.5] : [],
+}));
+const liteTrailSamples = liteExportSamples(sixPlayableFrames, 80, 260, true);
+assert.equal(liteTrailSamples.length, 8);
+assert.equal(new Set(liteTrailSamples.filter((sample) => sample.reason !== "trail_end").map((sample) => sample.frameIndex)).size, 6);
+assert.equal(liteTrailSamples.filter((sample) => sample.frameIndex === 4 && sample.reason !== "trail_end").length, 1);
+assert.equal(liteTrailSamples.filter((sample) => sample.frameIndex === 5 && sample.reason !== "trail_end").length, 2);
+assert.equal(liteTrailSamples.at(-1).reason, "trail_end");
+assert.ok(liteTrailSamples.every((sample) => sample.durationMs > 0));
+assert.ok(Math.abs(liteTrailSamples.filter((sample) => sample.reason !== "trail_end").reduce((total, sample) => total + sample.durationMs, 0) - 260) < 0.001);
+const liteNoTrailSamples = liteExportSamples(sixPlayableFrames, 1000, 260, false);
+assert.equal(liteNoTrailSamples.length, 6);
+const slowerFrames = sixPlayableFrames.map((frame) => ({ ...frame, durationMs: 160 }));
+assert.equal(liteExportSamples(slowerFrames, 80, 960, false).length, 12);
+assert.equal(liteExportSamples([{ frameIndex: 0, durationMs: 25.000000000000004 }], 25, 25, false).length, 1);
+assert.equal(liteExportSamples([{ frameIndex: 0, durationMs: 25.001 }], 25, 25.001, false).length, 2);
+assert.deepEqual(distributeIntegerMilliseconds(Array(6).fill(22.5)), [23, 22, 23, 22, 23, 22]);
+assert.equal(distributeIntegerMilliseconds(Array(6).fill(22.5)).reduce((sum, value) => sum + value, 0), 135);
 
 assert.deepEqual(PET_STATES.map((state) => state.id), [
   "idle", "running-right", "running-left", "waving", "jumping", "failed", "waiting", "running", "review",
@@ -165,24 +187,41 @@ assert.match(tunerHtmlSource, /id="attackTrailPresetName"[^>]*maxlength="60"/);
 const tunerAppSource = fs.readFileSync(path.join(__dirname, "animation_tuner", "public", "app.js"), "utf8");
 const liteUiSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "public", "lite.js"), "utf8");
 const liteServerSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "server.js"), "utf8");
+const liteContractSource = fs.readFileSync(path.join(__dirname, "..", "skills", "xsxb-frame-tuner", "references", "lite-contract.md"), "utf8");
 const liteImportFramesSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "import_frames.js"), "utf8");
 const liteImportSheetSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "import_sheet.js"), "utf8");
 assert.match(tunerAppSource, /window\.XsxbFrameTunerLite/);
 assert.match(tunerAppSource, /function renderLiteExportFrame\(/);
+assert.match(tunerAppSource, /function liteExportAudio\(/);
+assert.match(tunerAppSource, /audio: \(phaseDurationMs, samples\) => liteExportAudio\(phaseDurationMs, samples\)/);
 assert.match(tunerAppSource, /measureFrame:/);
 assert.match(tunerAppSource, /options\.measureOnly === true/);
 assert.match(tunerAppSource, /projectKind !== "frame_lite"/);
 assert.match(liteUiSource, /透明序列导出/);
+assert.match(liteUiSource, /id="litePhaseDurationMs"/);
+assert.doesNotMatch(liteUiSource, /id="liteExportFps"/);
 assert.match(liteUiSource, /导出 PNG 序列/);
 assert.match(liteUiSource, /导出 Sheet \+ JSON/);
 assert.match(liteUiSource, /重新计算全角色画布/);
 assert.match(liteUiSource, /calculateOptimalLayout/);
 assert.match(liteUiSource, /collectExportGroups/);
+assert.match(liteUiSource, /packageAudioAssets/);
+assert.match(liteUiSource, /audioMetadata/);
+assert.match(liteUiSource, /if \(kind === "sequence"\) \{\s*await writeJson\(targetDirectory, "export\.json"/);
+assert.match(liteUiSource, /sourceFrameIndex: frame\.sourceFrame/);
+assert.match(liteUiSource, /getDirectoryHandle\("audio", \{ create: true \}\)/);
 assert.match(liteUiSource, /showDirectoryPicker/);
 assert.match(liteUiSource, /createWritable/);
 assert.doesNotMatch(liteUiSource, /\/api\/lite\/export-file/);
 assert.doesNotMatch(liteServerSource, /\/api\/lite\/export-file/);
 assert.doesNotMatch(liteServerSource, /\/api\/lite\/export-complete/);
+assert.match(liteServerSource, /saveFrameAudioBindings/);
+assert.match(liteServerSource, /frameAudioBindings: data\.audio/);
+assert.match(liteServerSource, /url\.pathname === "\/api\/frame-audio"/);
+assert.doesNotMatch(liteServerSource, /Lite 不绑定音效/);
+assert.match(liteContractSource, /portable audio files plus JSON events/);
+assert.match(liteContractSource, /must not create a duplicate `export\.json`/);
+assert.doesNotMatch(liteContractSource, /no audio/);
 assert.doesNotMatch(liteImportFramesSource, /parseCanvas/);
 assert.doesNotMatch(liteImportSheetSource, /parseCanvas/);
 assert.deepEqual(frameEntries({ frames: [{ filename: "f2.png" }, { filename: "f10.png" }] }).map(([name]) => name), ["f2.png", "f10.png"]);
@@ -322,10 +361,42 @@ try {
   const paths = liteStore.paths(project);
   assert.equal(fs.existsSync(paths.manifest), true);
   assert.equal(fs.existsSync(paths.tuning), true);
+  assert.equal(fs.existsSync(paths.frameAudio), true);
+  assert.deepEqual(liteStore.readJson(paths.frameAudio, null), []);
   assert.equal(fs.existsSync(paths.frameImageAttachments), true);
   assert.equal(fs.existsSync(paths.attackTrails), true);
   assert.equal(fs.existsSync(paths.settings), true);
   assert.equal(paths.workspaceDir.startsWith(path.resolve(liteStoreTestRoot)), true);
+  const exportedAnimationDirectory = path.join(liteStoreTestRoot, "portable_export", "idle");
+  const exportedAudioDirectory = path.join(liteStoreTestRoot, "portable_export", "audio");
+  fs.mkdirSync(exportedAnimationDirectory, { recursive: true });
+  fs.mkdirSync(exportedAudioDirectory, { recursive: true });
+  const exportedAudio = path.join(exportedAudioDirectory, "hit.wav");
+  fs.writeFileSync(exportedAudio, Buffer.from("RIFFportable-lite-audio", "ascii"));
+  const importedAudioCount = importSheetAudio({
+    project,
+    profileId: "hero",
+    animationId: "idle",
+    animationType: "actor",
+    outputPath: "workspace/lite/projects/demo_project/assets/hero/idle/sheet.png",
+    jsonPath: path.join(exportedAnimationDirectory, "spritesheet.json"),
+    liteStore,
+    root: liteStoreTestRoot,
+    source: {
+      audio: {
+        files: [{ id: "audio_1", name: "hit.wav", file: "../audio/hit.wav", type: "audio/wav" }],
+        events: [{ outputFrame: 2, outputFrameIndex: 1, timeMs: 80, assetId: "audio_1", file: "../audio/hit.wav" }],
+      },
+    },
+  });
+  assert.equal(importedAudioCount, 1);
+  const importedAudio = liteStore.readJson(paths.frameAudio, []);
+  assert.equal(importedAudio.length, 1);
+  assert.equal(importedAudio[0].frame, 1);
+  assert.equal(importedAudio[0].animation, "hero/idle");
+  assert.equal(importedAudio[0].type, "audio/wav");
+  assert.equal(importedAudio[0].path.startsWith("workspace/lite/projects/demo_project/audio/"), true);
+  assert.equal(fs.readFileSync(path.join(liteStoreTestRoot, ...importedAudio[0].path.split("/"))).subarray(0, 4).toString("ascii"), "RIFF");
 } finally {
   const resolvedLiteStoreTestRoot = path.resolve(liteStoreTestRoot);
   const resolvedSystemTemp = path.resolve(os.tmpdir());

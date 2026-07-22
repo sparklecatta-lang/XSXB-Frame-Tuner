@@ -88,7 +88,10 @@ function saveAnimation({ project, profileId, profileLabel, animation }) {
     padding: Number(settings.canvas?.padding ?? 24),
     autoMeasured: false,
   };
-  settings.export = { fps: Number(settings.export?.fps || animation.fps || 12), sheetColumns: Number(settings.export?.sheetColumns || 8) };
+  settings.export = {
+    phaseDurationMs: Number(settings.export?.phaseDurationMs || 80),
+    sheetColumns: Number(settings.export?.sheetColumns || 8),
+  };
   store.writeJson(target.settings, settings);
   return { manifest, settings };
 }

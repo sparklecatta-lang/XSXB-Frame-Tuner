@@ -176,6 +176,12 @@
       return endTime;
     }
 
+    hasExportTrail() {
+      return this._segments().some((segment) => segment.enabled !== false
+        && segment.generated !== false
+        && segment.sticks.length >= 2);
+    }
+
     selectedStickArrival() {
       if (!this.enabled) return null;
       const stick = this._stick();

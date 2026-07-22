@@ -30,6 +30,84 @@ const isInside = (child, parent) => {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 };
 
+const AUDIO_MIME_BY_EXTENSION = Object.freeze({
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".flac": "audio/flac",
+  ".webm": "audio/webm",
+});
+const AUDIO_EXTENSION_BY_MIME = Object.freeze({
+  "audio/mpeg": ".mp3",
+  "audio/mp3": ".mp3",
+  "audio/ogg": ".ogg",
+  "audio/opus": ".opus",
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/mp4": ".m4a",
+  "audio/aac": ".aac",
+  "audio/flac": ".flac",
+  "audio/webm": ".webm",
+});
+
+function audioBindingsArray(payload) {
+  return Array.isArray(payload)
+    ? payload.filter((entry) => entry && typeof entry === "object")
+    : Object.entries(payload || {}).map(([key, value]) => ({
+      key,
+      ...(value && typeof value === "object" ? value : {}),
+    }));
+}
+
+function audioExtension(binding, mime = "") {
+  const named = path.extname(String(binding?.name || binding?.path || binding?.file || "")).toLowerCase();
+  if (AUDIO_MIME_BY_EXTENSION[named]) return named;
+  return AUDIO_EXTENSION_BY_MIME[String(mime || binding?.type || "").toLowerCase()] || "";
+}
+
+function saveFrameAudioBindings(project, payload) {
+  const target = store.paths(project);
+  const workspace = target.workspaceDir;
+  const audioDirectory = path.join(workspace, "audio");
+  const bindings = [];
+  for (const input of audioBindingsArray(payload)) {
+    const next = { ...input };
+    delete next.data;
+    delete next.file;
+    const dataMatch = /^data:(audio\/[a-z0-9.+-]+)(?:;[^,]*)?;base64,([a-z0-9+/=\r\n]+)$/i.exec(String(input.data || ""));
+    let full = null;
+    let mime = String(input.type || dataMatch?.[1] || "").toLowerCase();
+    if (dataMatch) {
+      const buffer = Buffer.from(dataMatch[2], "base64");
+      const extension = audioExtension(input, dataMatch[1]);
+      if (!buffer.length || !extension) throw new Error(`${input.name || "音效"}: 不支持的音频格式。`);
+      const hash = crypto.createHash("sha256").update(buffer).digest("hex");
+      full = path.join(audioDirectory, `${hash}${extension}`);
+      fs.mkdirSync(audioDirectory, { recursive: true });
+      if (!fs.existsSync(full)) fs.writeFileSync(full, buffer);
+      mime = AUDIO_MIME_BY_EXTENSION[extension] || mime;
+    } else {
+      full = safeResolve(ROOT, input.path || input.file || "");
+      const extension = path.extname(full || "").toLowerCase();
+      if (!full || !isInside(full, workspace) || !fs.existsSync(full) || !AUDIO_MIME_BY_EXTENSION[extension]) continue;
+      mime = mime || AUDIO_MIME_BY_EXTENSION[extension];
+    }
+    bindings.push({
+      ...next,
+      key: String(input.key || ""),
+      name: path.basename(String(input.name || path.basename(full) || "audio")),
+      type: mime,
+      size: fs.statSync(full).size,
+      path: reslash(path.relative(ROOT, full)),
+    });
+  }
+  store.writeJson(target.frameAudio, bindings);
+  return bindings;
+}
+
 function send(res, status, body, contentType = "application/json") {
   const data = Buffer.isBuffer(body) ? body : Buffer.from(/^application\/json(?:\s*;|$)/i.test(contentType) ? JSON.stringify(body, null, 2) : String(body));
   res.writeHead(status, {
@@ -161,9 +239,19 @@ function projectData(project) {
   const tuning = store.readJson(target.tuning, EMPTY_TUNING);
   tuning.values = tuning.values && typeof tuning.values === "object" ? tuning.values : {};
   const attackTrails = normalizeAttackTrails(store.readJson(target.attackTrails, EMPTY_ATTACK_TRAILS));
+  const audio = audioBindingsArray(store.readJson(target.frameAudio, []));
   const attachments = store.readJson(target.frameImageAttachments, []);
-  const settings = store.readJson(target.settings, EMPTY_SETTINGS);
-  return { target, manifest, tuning, attackTrails, attachments: Array.isArray(attachments) ? attachments : [], settings };
+  const rawSettings = store.readJson(target.settings, EMPTY_SETTINGS);
+  const settings = {
+    schemaVersion: 1,
+    canvas: rawSettings.canvas && typeof rawSettings.canvas === "object" ? rawSettings.canvas : { ...EMPTY_SETTINGS.canvas },
+    export: {
+      phaseDurationMs: Math.min(1000, Math.max(1, Math.round(Number(rawSettings.export?.phaseDurationMs || 80)))),
+      sheetColumns: Math.min(64, Math.max(1, Math.round(Number(rawSettings.export?.sheetColumns || 8)))),
+    },
+  };
+  if (JSON.stringify(rawSettings) !== JSON.stringify(settings)) store.writeJson(target.settings, settings);
+  return { target, manifest, tuning, attackTrails, audio, attachments: Array.isArray(attachments) ? attachments : [], settings };
 }
 
 function validateLiteProject(project, data = projectData(project)) {
@@ -181,6 +269,12 @@ function validateLiteProject(project, data = projectData(project)) {
     }
   }
   warnings.push(...validateAttackTrails(data.attackTrails, { profiles: data.manifest.profiles }));
+  for (const binding of data.audio) {
+    const full = safeResolve(ROOT, binding.path || binding.file || "");
+    if (!full || !isInside(full, data.target.workspaceDir) || !fs.existsSync(full)) {
+      warnings.push(`${binding.name || "音效"}: Lite 音频文件不存在或不在当前项目稳定目录。`);
+    }
+  }
   const width = Number(data.settings.canvas?.width || 0);
   const height = Number(data.settings.canvas?.height || 0);
   if (data.settings.canvas?.autoMeasured === true && (width < 1 || height < 1 || width > 8192 || height > 8192)) warnings.push("已计算的统一透明画布尺寸必须在 1-8192 px。 ");
@@ -204,7 +298,7 @@ function configResponse(projectId) {
     root: ROOT, workspaceRoot: data.target.workspaceDir, workspaceAllRoot: path.join(ROOT, "workspace", "lite"), projectRoot: "",
     activeProjectId: project.id, activeProject: store.projectForClient(project), projects, scenes: [],
     profiles: data.manifest.profiles.map((profile) => ({ id: profile.id, label: profile.label, kind: profile.kind, scale_semantic: "character_group_frame", anchor_mode: "manifest_anchor_mode", supports: profile.supports })),
-    frameAudioBindings: [], frameImageAttachments: data.attachments, attackTrails: data.attackTrails,
+    frameAudioBindings: data.audio, frameImageAttachments: data.attachments, attackTrails: data.attackTrails,
     tuning: { ...data.tuning.values, scene_settings: data.tuning.scene_settings || {}, frame_visual_overrides: data.tuning.frame_visual_overrides || {}, frame_playback_overrides: data.tuning.frame_playback_overrides || {}, frame_box_overrides: data.tuning.frame_box_overrides || {} },
     tuningDefaults: {}, bossTuning: {}, act2StatueBossTuning: {}, act2StatueBossDefaults: {}, huangXianTuning: {}, huangXianDefaults: {}, huangXianManifest: {}, soulTuning: {}, soulDefaults: {}, soulManifest: {}, yechengPropTuning: {}, yechengPropDefaults: {},
     warnings: validateLiteProject(project, data), references: {}, projectKind: "frame_lite", liteSettings: data.settings,
@@ -245,6 +339,7 @@ function savePayload(project, payload) {
     frame_box_overrides: payload.frame_box_overrides && typeof payload.frame_box_overrides === "object" ? payload.frame_box_overrides : {},
   };
   store.writeJson(target.tuning, tuning);
+  const audio = saveFrameAudioBindings(project, payload.frame_audio_bindings || payload.frameAudioBindings || []);
   const attachments = Array.isArray(payload.frame_image_attachments) ? payload.frame_image_attachments : [];
   store.writeJson(target.frameImageAttachments, attachments);
   const trails = normalizeAttackTrails(payload.attack_trails || EMPTY_ATTACK_TRAILS);
@@ -259,7 +354,7 @@ function savePayload(project, payload) {
     }
   }
   store.writeJson(target.attackTrails, trails);
-  return { tuning, attachments, trails };
+  return { tuning, audio, attachments, trails };
 }
 
 function serveIndex(res) {
@@ -300,8 +395,8 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(await readBody(req));
       const project = store.resolveProject(payload.projectId);
       if (!project) return send(res, 404, { error: "Lite project not found." });
-      savePayload(project, payload);
-      return send(res, 200, { ok: true, warnings: validateLiteProject(project), godotSync: null, frameAudioCount: 0 });
+      const saved = savePayload(project, payload);
+      return send(res, 200, { ok: true, warnings: validateLiteProject(project), godotSync: null, frameAudioCount: saved.audio.length });
     }
     if (req.method === "POST" && url.pathname === "/api/attack-trail-texture") {
       const payload = JSON.parse(await readBody(req));
@@ -341,17 +436,23 @@ const server = http.createServer(async (req, res) => {
           autoMeasured: payload.canvas?.autoMeasured === true,
         },
         export: {
-          fps: Math.min(240, Math.max(0.1, Number(payload.export?.fps || 12))),
+          phaseDurationMs: Math.min(1000, Math.max(1, Math.round(Number(payload.export?.phaseDurationMs || 80)))),
           sheetColumns: Math.min(64, Math.max(1, Math.round(Number(payload.export?.sheetColumns || 8)))),
         },
       };
       store.writeJson(store.paths(project).settings, settings);
       return send(res, 200, { ok: true, settings });
     }
-    if (req.method === "POST" && url.pathname === "/api/frame-audio") return send(res, 400, { error: "Frame Tuner Lite does not support audio." });
+    if (req.method === "POST" && url.pathname === "/api/frame-audio") {
+      const payload = JSON.parse(await readBody(req));
+      const project = store.resolveProject(payload.projectId);
+      if (!project) return send(res, 404, { error: "Lite project not found." });
+      const bindings = saveFrameAudioBindings(project, payload.frameAudioBindings || []);
+      return send(res, 200, { ok: true, frameAudioCount: bindings.length, frameAudioBindings: bindings, godotAudioSync: null });
+    }
     if (req.method === "GET" && url.pathname === "/asset") {
       const full = safeResolve(ROOT, url.searchParams.get("path"));
-      const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+      const types = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ...AUDIO_MIME_BY_EXTENSION };
       const type = types[path.extname(full || "").toLowerCase()];
       if (!full || !fs.existsSync(full) || !type) return send(res, 404, "Not found", "text/plain");
       res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
@@ -371,4 +472,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildGroups, configResponse, server, validateLiteProject };
+module.exports = { AUDIO_MIME_BY_EXTENSION, buildGroups, configResponse, saveFrameAudioBindings, server, validateLiteProject };

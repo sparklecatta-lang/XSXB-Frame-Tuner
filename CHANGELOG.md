@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- Add portable frame-bound SFX to Frame Tuner Lite exports and restore those bindings when a Lite sprite sheet is imported again.
+- Replace Lite export FPS with a maximum trail-phase duration so authored group and per-frame milliseconds remain the only timing authority.
+
+### Fixes
+
+- Keep every playable source frame in Lite output while deriving additional trail samples only from its real duration, independent of stick count or saved stick phases.
+- Avoid floating-point over-sampling at exact duration boundaries and distribute integer Sheet durations without changing the animation total.
+- Make `spritesheet.json` the sole descriptor for Sheet exports; PNG sequence exports continue to use `export.json`.
+
 ## 0.3.0 - 2026-07-22
 
 ### Features
