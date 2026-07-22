@@ -56,7 +56,7 @@
     let elapsedMs = 0;
     for (const frame of frames) {
       const durationMs = Math.max(0.001, Number(frame?.durationMs) || 0.001);
-      const sampleCount = phaseCountForDuration(durationMs);
+      const sampleCount = frame?.trailActive === true ? phaseCountForDuration(durationMs) : 1;
       const outputDurationMs = durationMs / sampleCount;
       for (let phaseIndex = 0; phaseIndex < sampleCount; phaseIndex += 1) {
         const phase = (phaseIndex + 0.5) / sampleCount;

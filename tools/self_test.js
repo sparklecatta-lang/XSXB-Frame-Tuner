@@ -71,6 +71,7 @@ assert.deepEqual(
 const sixPlayableFrames = [25, 25, 25, 25, 25, 135].map((durationMs, frameIndex) => ({
   frameIndex,
   durationMs,
+  trailActive: true,
   // Export sampling must ignore stick-authored phases. Sticks shape the path only.
   stickPhases: frameIndex === 4 ? [1 / 3, 2 / 3] : frameIndex === 5 ? [0.5] : [],
 }));
@@ -82,12 +83,17 @@ assert.equal(liteTrailSamples.filter((sample) => sample.frameIndex === 5 && samp
 assert.equal(liteTrailSamples.at(-1).reason, "trail_end");
 assert.ok(liteTrailSamples.every((sample) => sample.durationMs > 0));
 assert.ok(Math.abs(liteTrailSamples.filter((sample) => sample.reason !== "trail_end").reduce((total, sample) => total + sample.durationMs, 0) - 260) < 0.001);
-const liteNoTrailSamples = liteExportSamples(sixPlayableFrames, 1000, 260, false);
+const liteNoTrailSamples = liteExportSamples(sixPlayableFrames.map((frame) => ({ ...frame, trailActive: false })), 25, 260, false);
 assert.equal(liteNoTrailSamples.length, 6);
 const slowerFrames = sixPlayableFrames.map((frame) => ({ ...frame, durationMs: 160 }));
 assert.equal(liteExportSamples(slowerFrames, 80, 960, false).length, 12);
 assert.equal(liteExportSamples([{ frameIndex: 0, durationMs: 25.000000000000004 }], 25, 25, false).length, 1);
-assert.equal(liteExportSamples([{ frameIndex: 0, durationMs: 25.001 }], 25, 25.001, false).length, 2);
+assert.equal(liteExportSamples([{ frameIndex: 0, durationMs: 25.001, trailActive: true }], 25, 25.001, false).length, 2);
+assert.equal(liteExportSamples([
+  { frameIndex: 0, durationMs: 100, trailActive: false },
+  { frameIndex: 1, durationMs: 100, trailActive: true },
+  { frameIndex: 2, durationMs: 100, trailActive: false },
+], 25, 300, false).length, 6);
 assert.deepEqual(distributeIntegerMilliseconds(Array(6).fill(22.5)), [23, 22, 23, 22, 23, 22]);
 assert.equal(distributeIntegerMilliseconds(Array(6).fill(22.5)).reduce((sum, value) => sum + value, 0), 135);
 
@@ -179,6 +185,7 @@ const attackTrailEditorSource = fs.readFileSync(path.join(__dirname, "animation_
 assert.match(attackTrailEditorSource, /pixelStorei\(gl\.UNPACK_FLIP_Y_WEBGL, true\)/);
 assert.match(attackTrailEditorSource, /const DEFAULT_PATH_COLUMNS = 20/);
 assert.match(attackTrailEditorSource, /_savePreset\(name\)/);
+assert.match(attackTrailEditorSource, /exportTimeRanges\(\)/);
 assert.match(attackTrailEditorSource, /sticks: \[\]/);
 assert.match(attackTrailEditorSource, /name: presetName/);
 const tunerHtmlSource = fs.readFileSync(path.join(__dirname, "animation_tuner", "public", "index.html"), "utf8");
@@ -193,6 +200,7 @@ const liteImportSheetSource = fs.readFileSync(path.join(__dirname, "frame_tuner_
 assert.match(tunerAppSource, /window\.XsxbFrameTunerLite/);
 assert.match(tunerAppSource, /function renderLiteExportFrame\(/);
 assert.match(tunerAppSource, /function liteExportAudio\(/);
+assert.match(tunerAppSource, /frame\.trailActive = trailRanges\.some/);
 assert.match(tunerAppSource, /audio: \(phaseDurationMs, samples\) => liteExportAudio\(phaseDurationMs, samples\)/);
 assert.match(tunerAppSource, /measureFrame:/);
 assert.match(tunerAppSource, /options\.measureOnly === true/);

@@ -12,6 +12,7 @@
 - Keep every playable source frame in Lite output while deriving additional trail samples only from its real duration, independent of stick count or saved stick phases.
 - Avoid floating-point over-sampling at exact duration boundaries and distribute integer Sheet durations without changing the animation total.
 - Make `spritesheet.json` the sole descriptor for Sheet exports; PNG sequence exports continue to use `export.json`.
+- Restrict duration-based sub-sampling to frames actually overlapped by an active attack trail; animations and frames without trails remain one-for-one.
 
 ## 0.3.0 - 2026-07-22
 

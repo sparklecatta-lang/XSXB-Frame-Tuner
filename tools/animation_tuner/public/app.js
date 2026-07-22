@@ -5183,6 +5183,15 @@ function liteExportTimeline(maxPhaseDurationMs = 80) {
     animationDurationMs += durationMs;
   }
   const animationDuration = animationDurationMs / 1000;
+  const trailRanges = attackTrailEditor?.exportTimeRanges() || [];
+  let elapsedMs = 0;
+  for (const frame of playableFrames) {
+    const frameStart = elapsedMs / 1000;
+    const frameEnd = (elapsedMs + frame.durationMs) / 1000;
+    frame.trailActive = trailRanges.some((range) => range.end > frameStart + 0.000001
+      && range.start < frameEnd - 0.000001);
+    elapsedMs += frame.durationMs;
+  }
   const exportDuration = attackTrailEditor?.exportEndTime(animationDuration) || animationDuration;
   return window.XsxbTimingModes.liteExportSamples(
     playableFrames,

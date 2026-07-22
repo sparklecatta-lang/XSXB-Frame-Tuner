@@ -168,11 +168,7 @@
 
     exportEndTime(animationDuration = 0) {
       let endTime = Math.max(0, Number(animationDuration || 0));
-      for (const segment of this._segments()) {
-        if (segment.enabled === false || segment.generated === false || segment.sticks.length < 2) continue;
-        const pathEnd = this._timing(segment).absolute.at(-1) || 0;
-        endTime = Math.max(endTime, pathEnd + this._chaseTimes(segment).afterMs / 1000);
-      }
+      for (const range of this.exportTimeRanges()) endTime = Math.max(endTime, range.end);
       return endTime;
     }
 
@@ -180,6 +176,18 @@
       return this._segments().some((segment) => segment.enabled !== false
         && segment.generated !== false
         && segment.sticks.length >= 2);
+    }
+
+    exportTimeRanges() {
+      const ranges = [];
+      for (const segment of this._segments()) {
+        if (segment.enabled === false || segment.generated === false || segment.sticks.length < 2) continue;
+        const timing = this._timing(segment);
+        const start = Math.max(0, Number(timing.absolute[0] || 0));
+        const pathEnd = Math.max(start, Number(timing.absolute.at(-1) || start));
+        ranges.push({ start, end: pathEnd + this._chaseTimes(segment).afterMs / 1000 });
+      }
+      return ranges;
     }
 
     selectedStickArrival() {
