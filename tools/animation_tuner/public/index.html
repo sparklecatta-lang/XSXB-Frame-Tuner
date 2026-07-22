@@ -110,7 +110,7 @@
           <div id="attackTrailBody" class="attackTrailBody" hidden>
             <div class="attackTrailRow trailSegmentRow">
               <select id="attackTrailSegment"></select>
-              <button id="attackTrailNew" type="button" class="secondary">新增段</button>
+              <button id="attackTrailNew" type="button" class="secondary" title="保存当前纹理、配色和参数为新的拖尾预设">保存</button>
               <button id="attackTrailDelete" type="button" class="dangerMini">删除</button>
             </div>
             <div class="attackTrailRow trailStickActionRow">
@@ -163,6 +163,20 @@
               <p id="attackTrailTimingSummary" class="trailTimingSummary"></p>
             </div>
           </div>
+          <dialog id="attackTrailPresetDialog" class="trailPresetDialog" aria-labelledby="attackTrailPresetDialogTitle">
+            <form id="attackTrailPresetForm" class="trailPresetForm">
+              <h3 id="attackTrailPresetDialogTitle">保存拖尾预设</h3>
+              <p>当前纹理、配色、头部弧度和动态参数会保存为一套新预设。棍子路径不会复制。</p>
+              <label class="field">
+                <span>预设名称</span>
+                <input id="attackTrailPresetName" type="text" maxlength="60" autocomplete="off" />
+              </label>
+              <div class="trailPresetActions">
+                <button id="attackTrailPresetCancel" type="button" class="secondary">取消</button>
+                <button type="submit" class="accentButton">保存预设</button>
+              </div>
+            </form>
+          </dialog>
         </details>
         <details class="panel" data-panel="boxes">
           <summary><h2 data-i18n="boxes">碰撞框</h2></summary>

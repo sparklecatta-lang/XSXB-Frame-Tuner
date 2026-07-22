@@ -23,6 +23,7 @@ const {
   syncCodexPetProject,
 } = require("../codex_pets");
 const { checkForUpdates, performUpdate } = require("../updater");
+const { withUtf8Charset } = require("../http_content_type");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const PUBLIC = path.join(__dirname, "public");
@@ -59,12 +60,13 @@ function ensureDataFiles() {
 function send(res, status, body, contentType = "application/json") {
   const data = Buffer.isBuffer(body)
     ? body
-    : contentType === "application/json"
+    : /^application\/json(?:\s*;|$)/i.test(contentType)
       ? Buffer.from(JSON.stringify(body, null, 2))
       : Buffer.from(String(body));
   res.writeHead(status, {
-    "content-type": contentType,
+    "content-type": withUtf8Charset(contentType),
     "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
   });
   res.end(data);
 }

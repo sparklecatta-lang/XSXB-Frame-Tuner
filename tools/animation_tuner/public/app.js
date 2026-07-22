@@ -446,6 +446,7 @@ let referenceFrameHiddenByKey = false;
 let playing = false;
 let lastPlay = 0;
 let lastAttackTrailPlaybackSampleToken = "";
+let liteExportTime = null;
 let pointerStagePoint = null;
 let playbackPrimaryGroup = null;
 let playbackSecondaryGroup = null;
@@ -1510,7 +1511,9 @@ function escapeHtml(value) {
 function projectLabel(project) {
   if (!project) return "Project";
   const label = project.label || project.id || "Project";
-  return project.kind === "codex_pets" ? `🐾 ${label}` : label;
+  if (project.kind === "codex_pets") return `🐾 ${label}`;
+  if (project.kind === "frame_lite") return `◇ ${label}`;
+  return label;
 }
 
 function renderProjectSelect() {
@@ -1529,9 +1532,11 @@ function renderProjectSelect() {
     els.addCodexPet.closest(".projectActions")?.classList.toggle("hasPetAction", config?.projectKind === "codex_pets");
   }
   const petMode = config?.projectKind === "codex_pets";
+  const liteMode = config?.projectKind === "frame_lite";
   document.querySelectorAll('[data-i18n="character"]').forEach((node) => { node.textContent = petMode ? t("pet") : t("character"); });
   document.querySelectorAll('[data-i18n="group"]').forEach((node) => { node.textContent = petMode ? t("state") : t("group"); });
   document.body.classList.toggle("codexPetsProject", petMode);
+  document.body.classList.toggle("frameTunerLite", liteMode);
 }
 
 function resetProjectSession() {
@@ -1719,9 +1724,11 @@ async function loadConfig() {
   yechengPropFrameOverrides = structuredClone(config.yechengPropTuning?.frame_visual_overrides || {});
   loadFrameImageAttachmentsFromProject();
   resetFrameAudioBindings();
-  loadFrameAudioBindingsFromProject();
-  await loadFrameAudioBindingsFromDb();
-  if (Object.keys(frameAudioBindings).length) {
+  if (config.projectKind !== "frame_lite") {
+    loadFrameAudioBindingsFromProject();
+    await loadFrameAudioBindingsFromDb();
+  }
+  if (config.projectKind !== "frame_lite" && Object.keys(frameAudioBindings).length) {
     await syncFrameAudioBindingsToGame({ silent: true }).catch((error) => {
       status(t("boxSyncFailed", { message: error.message }));
     });
@@ -1762,6 +1769,7 @@ async function loadConfig() {
     draw();
   }
   status(loadedStatusText());
+  window.dispatchEvent(new CustomEvent("xsxb-frame-tuner-config", { detail: { projectKind: config.projectKind, projectId: config.activeProjectId } }));
 }
 
 async function selectGroup(group, options = {}) {
@@ -1834,7 +1842,9 @@ async function loadChainImages() {
 
 function findRelatedGroup(ownerGroup, name) {
   if (!ownerGroup || !name) return null;
-  return config?.groups?.find((group) => group.tuningTarget === ownerGroup.tuningTarget && group.name === name) || null;
+  return config?.groups?.find((group) => group.tuningTarget === ownerGroup.tuningTarget
+    && group.name === name
+    && (config?.projectKind !== "frame_lite" || group.profileId === ownerGroup.profileId)) || null;
 }
 
 function attachedLayerGroups(ownerGroup) {
@@ -4128,7 +4138,7 @@ function renderFilmstripGroup(group, label) {
     const playback = framePlayback(index, group);
     const item = document.createElement("button");
     const inSelection = isCurrent && selectedFrames.has(index) && !selectedAttachmentId;
-    const audioBinding = frameAudioBinding(index, group);
+    const audioBinding = config?.projectKind === "frame_lite" ? null : frameAudioBinding(index, group);
     item.className = `thumb ${inSelection ? "selected" : ""} ${isCurrent && index === selectedFrame ? "primary" : ""} ${isReferenceFrame(index, group) ? "reference" : ""} ${!isCurrent ? "chained" : ""} ${store[tuningFrameKey(index, group)] ? "overridden" : ""} ${playback.disabled ? "disabled" : ""} ${audioBinding ? "hasSfx" : ""}`;
     const sourceLabel = Array.isArray(group.sourceFrameIndices) && group.sourceFrameIndices.length ? ` (src ${sourceFrameIndex(index, group) + 1})` : "";
     item.title = `${label}${index + 1} - ${frame.name}${sourceLabel}`;
@@ -4196,6 +4206,10 @@ function renderFilmstripGroup(group, label) {
         return;
       }
       const file = audioFileFromList(event.dataTransfer?.files);
+      if (config?.projectKind === "frame_lite") {
+        status("Lite 只接受图片图层，不支持音效。");
+        return;
+      }
       if (!file) {
         status(t("dropImageFile"));
         return;
@@ -4791,6 +4805,7 @@ function attackTrailFrameArrival(frameIndex, framePhase, group = currentGroup) {
 }
 
 function attackTrailAnimationElapsedRaw(group = currentGroup) {
+  if (Number.isFinite(liteExportTime)) return liteExportTime;
   if (!group) return 0;
   if (!playing) {
     const selectedStickArrival = attackTrailEditor?.selectedStickArrival();
@@ -4879,13 +4894,15 @@ function playbackNeedsContinuousDraw() {
   return attachedLayerGroups(currentGroup).some((group) => group.independentPlayback === true || sequenceOverlapEnabled(group));
 }
 
-function drawAttachedLayersForOwner(ownerGroup, ownerIndex, alpha) {
+function drawAttachedLayersForOwner(ownerGroup, ownerIndex, alpha, layer = "all") {
   for (const layerGroup of attachedLayerGroups(ownerGroup)) {
+    const previewLayer = layerGroup.previewLayer === "behind" ? "behind" : "front";
+    if (layer !== "all" && previewLayer !== layer) continue;
     if (layerGroup.uiId === currentGroup?.uiId) continue;
     const layerImages = attachedLayerImageSets.get(layerGroup.uiId) || [];
     if (!layerImages.length) continue;
-    const layerIndex = layerGroup.independentPlayback === true && playing
-      ? timedPlayableFrameIndex(layerGroup)
+    const layerIndex = layerGroup.independentPlayback === true && (playing || Number.isFinite(liteExportTime))
+      ? (Number.isFinite(liteExportTime) ? liteFrameAtTime(liteExportTime, layerGroup) : timedPlayableFrameIndex(layerGroup))
       : Math.min(ownerIndex, layerImages.length - 1);
     const layerOptions = {
       transform: compositeLayerTransform(layerGroup, layerIndex, ownerGroup, ownerIndex),
@@ -5095,12 +5112,128 @@ function drawCompositeFrame(index, alpha, selected) {
     return;
   }
   if (selected) drawSequenceOverlapFrame(index, alpha);
+  if (config?.projectKind === "frame_lite") drawAttachedLayersForOwner(currentGroup, index, alpha, "behind");
   drawFrameImageAttachments(index, alpha, "below");
   if (selected) attackTrailEditor?.drawLayer("behind", index, alpha);
   drawFrame(index, alpha, selected);
   drawFrameImageAttachments(index, alpha, "above");
   if (selected) attackTrailEditor?.drawLayer("front", index, alpha);
-  drawAttachedLayersForOwner(currentGroup, index, alpha);
+  drawAttachedLayersForOwner(currentGroup, index, alpha, config?.projectKind === "frame_lite" ? "front" : "all");
+}
+
+function drawLiteExportComposite(index) {
+  if (currentGroup?.previewOwner && previewOwnerGroup && previewOwnerImages.length) {
+    const ownerIndex = compositeOwnerFrameIndex(index, previewOwnerGroup);
+    drawFrame(ownerIndex, 1, false, previewOwnerGroup, previewOwnerImages);
+    drawFrameImageAttachments(index, 1, "below", currentGroup, images);
+    attackTrailEditor?.drawLayer("behind", index, 1);
+    drawFrame(index, 1, false, currentGroup, images, {
+      transform: compositeLayerTransform(currentGroup, index, previewOwnerGroup, ownerIndex),
+      flipH: compositeLayerFlipH(currentGroup, previewOwnerGroup),
+    });
+    drawFrameImageAttachments(index, 1, "above", currentGroup, images);
+    attackTrailEditor?.drawLayer("front", index, 1);
+    return;
+  }
+  drawAttachedLayersForOwner(currentGroup, index, 1, "behind");
+  drawFrameImageAttachments(index, 1, "below");
+  attackTrailEditor?.drawLayer("behind", index, 1);
+  drawFrame(index, 1, false);
+  drawFrameImageAttachments(index, 1, "above");
+  attackTrailEditor?.drawLayer("front", index, 1);
+  drawAttachedLayersForOwner(currentGroup, index, 1, "front");
+}
+
+function liteFrameAtTime(timeSeconds, group = currentGroup) {
+  if (!group?.frames?.length) return 0;
+  const targetMs = Math.max(0, Number(timeSeconds || 0) * 1000);
+  let elapsed = 0;
+  let lastPlayable = 0;
+  for (let index = 0; index < group.frames.length; index += 1) {
+    if (framePlayback(index, group).disabled) continue;
+    lastPlayable = index;
+    elapsed += frameDurationMs(index, group);
+    if (targetMs < elapsed) return index;
+  }
+  return lastPlayable;
+}
+
+function liteExportTimeline(fps = 12) {
+  if (!currentGroup?.frames?.length) return [];
+  const exportFps = Math.min(240, Math.max(0.1, Number(fps || 12)));
+  const animationDuration = groupPlaybackDurationSeconds(currentGroup);
+  const exportDuration = attackTrailEditor?.exportEndTime(animationDuration) || animationDuration;
+  const frameCount = Math.max(1, Math.ceil(exportDuration * exportFps) + 1);
+  return Array.from({ length: frameCount }, (_, index) => {
+    const time = Math.min(exportDuration, index / exportFps);
+    return { index, time, frameIndex: liteFrameAtTime(time), durationMs: Math.round(1000 / exportFps) };
+  });
+}
+
+async function renderLiteExportFrame(sample, options = {}) {
+  if (config?.projectKind !== "frame_lite" || !currentGroup?.frames?.length) throw new Error("Lite export requires an active sequence.");
+  const width = Math.min(8192, Math.max(1, Math.round(Number(options.width || 1024))));
+  const height = Math.min(8192, Math.max(1, Math.round(Number(options.height || 1024))));
+  const originPixelX = Number.isFinite(Number(options.originPixelX))
+    ? Number(options.originPixelX)
+    : width * Math.min(1, Math.max(0, Number(options.originX ?? 0.5)));
+  const originPixelY = Number.isFinite(Number(options.originPixelY))
+    ? Number(options.originPixelY)
+    : height * Math.min(1, Math.max(0, Number(options.originY ?? 0.86)));
+  const frameIndex = clampFrameIndex(sample?.frameIndex ?? 0, currentGroup);
+  await Promise.all(frameImageAttachmentsForFrame(frameIndex, currentGroup).map((attachment) => loadImageCached(attachment).catch(() => null)));
+  await attackTrailEditor?.prepareExport();
+  const previous = {
+    width: els.stage.width,
+    height: els.stage.height,
+    view: { ...view },
+    selectedFrame,
+    selectedFrames: new Set(selectedFrames),
+    playing,
+    trailEnabled: attackTrailEditor?.enabled,
+  };
+  try {
+    playing = false;
+    selectedFrame = frameIndex;
+    selectedFrames = new Set([frameIndex]);
+    liteExportTime = Math.max(0, Number(sample?.time || 0));
+    if (attackTrailEditor) attackTrailEditor.enabled = true;
+    els.stage.width = width;
+    els.stage.height = height;
+    view = { zoom: 1 / Math.max(0.0001, devicePixelRatio), x: originPixelX, y: originPixelY };
+    ctx.clearRect(0, 0, width, height);
+    drawLiteExportComposite(frameIndex);
+    if (options.measureOnly === true) {
+      const pixels = new Uint32Array(ctx.getImageData(0, 0, width, height).data.buffer);
+      let left = width;
+      let top = height;
+      let right = -1;
+      let bottom = -1;
+      for (let y = 0; y < height; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          if ((pixels[y * width + x] >>> 24) === 0) continue;
+          if (x < left) left = x;
+          if (x > right) right = x;
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+        }
+      }
+      return right >= left && bottom >= top
+        ? { left, top, right, bottom, width: right - left + 1, height: bottom - top + 1 }
+        : null;
+    }
+    return els.stage.toDataURL("image/png");
+  } finally {
+    liteExportTime = null;
+    playing = previous.playing;
+    selectedFrame = previous.selectedFrame;
+    selectedFrames = previous.selectedFrames;
+    if (attackTrailEditor) attackTrailEditor.enabled = previous.trailEnabled;
+    els.stage.width = previous.width;
+    els.stage.height = previous.height;
+    view = previous.view;
+    draw();
+  }
 }
 
 function drawBox(boxName) {
@@ -5625,7 +5758,7 @@ async function save() {
   updateAdjustmentFromInputs();
   pruneNoopFrameOverrides();
   await ensureCollisionBoxOverridesForSave();
-  const frameAudioBindingsForSave = await collectFrameAudioBindingsForSave();
+  const frameAudioBindingsForSave = config?.projectKind === "frame_lite" ? [] : await collectFrameAudioBindingsForSave();
   const codexPetExportsForSave = await collectCodexPetExportsForSave();
   const hadReadOnlyPetEdits = config?.projectKind === "codex_pets"
     && [...dirtyPetProfileIds].some((profileId) => !codexPetProfile(profileId)?.pet?.writable);
@@ -6742,6 +6875,34 @@ attackTrailEditor = new window.AttackTrailEditor({
   draw,
   status: (message) => status(message),
 });
+window.XsxbFrameTunerLite = {
+  current: () => ({
+    ready: config?.projectKind === "frame_lite" && Boolean(currentGroup),
+    projectId: config?.activeProjectId || "",
+    profileId: currentGroup?.profileId || "",
+    animationId: currentGroup?.animationId || currentGroup?.name || "",
+    groupId: currentGroup?.uiId || "",
+    frameCount: currentGroup?.frames?.length || 0,
+    settings: structuredClone(config?.liteSettings || {}),
+  }),
+  timeline: (fps) => liteExportTimeline(fps),
+  renderFrame: (sample, options) => renderLiteExportFrame(sample, options),
+  measureFrame: (sample, options) => renderLiteExportFrame(sample, { ...options, measureOnly: true }),
+  exportGroups: () => (config?.groups || [])
+    .filter((group) => group.profileId === currentGroup?.profileId && !group.previewOwner)
+    .map((group) => ({
+      groupId: group.uiId,
+      animationId: group.animationId || group.name,
+      name: group.name,
+      frameCount: group.frames?.length || 0,
+    })),
+  selectGroup: async (groupId) => {
+    const group = (config?.groups || []).find((entry) => entry.uiId === groupId);
+    if (!group) throw new Error(`Lite export group not found: ${groupId}`);
+    await selectGroup(group);
+    return window.XsxbFrameTunerLite.current();
+  },
+};
 requestAnimationFrame(animate);
 applyUiTheme();
 applyCanvasColor();

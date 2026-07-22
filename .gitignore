@@ -21,11 +21,13 @@ data/projects.json
 data/projects.json.*
 data/projects.local.json
 data/projects/
+data/lite/
 !data/.gitkeep
 
 # Imported frames, attachments, generated workspace assets, and audio cache.
 workspace/assets/*
 workspace/projects/*
+workspace/lite/
 !workspace/.gitkeep
 !workspace/assets/.gitkeep
 !workspace/projects/.gitkeep

@@ -8,9 +8,32 @@ const { parseBatchArgs } = require("./import_batch");
 const { runtimeScript } = require("./godot_runtime");
 const { profileIdsForSceneText } = require("./scene_profiles");
 const { ATLAS_HEIGHT, ATLAS_HEIGHT_V2, ATLAS_WIDTH, PET_STATES, parseWebpSize } = require("./codex_pets");
-const { normalizeAttackTrails, pngInfo } = require("./attack_trails");
+const { normalizeAttackTrails, pngInfo, validateAttackTrails } = require("./attack_trails");
 const { averageFrameTiming, groupFpsForDuration, frameSynchronousEffectSample } = require("./animation_tuner/public/timing_modes");
 const { candidateSkillTargets, resolveSkillTarget, syncSkillDirectory, trustedRemote } = require("./updater");
+const { withUtf8Charset } = require("./http_content_type");
+const { createLiteStore } = require("./frame_tuner_lite/store");
+const { cropFromEntry, frameEntries } = require("./frame_tuner_lite/import_sheet");
+
+assert.equal(withUtf8Charset("text/html"), "text/html; charset=utf-8");
+assert.equal(withUtf8Charset("text/css"), "text/css; charset=utf-8");
+assert.equal(withUtf8Charset("application/javascript"), "application/javascript; charset=utf-8");
+assert.equal(withUtf8Charset("application/json"), "application/json; charset=utf-8");
+assert.equal(withUtf8Charset("text/html; charset=gbk"), "text/html; charset=gbk");
+assert.equal(withUtf8Charset("image/png"), "image/png");
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+for (const publicRoot of [
+  path.join(__dirname, "animation_tuner", "public"),
+  path.join(__dirname, "frame_tuner_lite", "public"),
+]) {
+  for (const entry of fs.readdirSync(publicRoot, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !/\.(?:html|js|css)$/i.test(entry.name)) continue;
+    const filePath = path.join(entry.parentPath || entry.path, entry.name);
+    const text = utf8Decoder.decode(fs.readFileSync(filePath));
+    assert.doesNotMatch(text, /[\u0080-\u009f\ufffd]|(?:Ã.|Â.|â€|锟斤拷)/u, `${filePath} contains mojibake`);
+  }
+}
 
 assert.equal(animationLooksAttack("stand_attack"), true);
 assert.equal(animationLooksAttack("站立攻击"), true);
@@ -133,6 +156,39 @@ assert.match(attackTrailRendererSource, /is_equal_approx\(float\(state\.get\("la
 const attackTrailEditorSource = fs.readFileSync(path.join(__dirname, "animation_tuner", "public", "attack_trails.js"), "utf8");
 assert.match(attackTrailEditorSource, /pixelStorei\(gl\.UNPACK_FLIP_Y_WEBGL, true\)/);
 assert.match(attackTrailEditorSource, /const DEFAULT_PATH_COLUMNS = 20/);
+assert.match(attackTrailEditorSource, /_savePreset\(name\)/);
+assert.match(attackTrailEditorSource, /sticks: \[\]/);
+assert.match(attackTrailEditorSource, /name: presetName/);
+const tunerHtmlSource = fs.readFileSync(path.join(__dirname, "animation_tuner", "public", "index.html"), "utf8");
+assert.match(tunerHtmlSource, /id="attackTrailNew"[^>]*>保存<\/button>/);
+assert.match(tunerHtmlSource, /id="attackTrailPresetName"[^>]*maxlength="60"/);
+const tunerAppSource = fs.readFileSync(path.join(__dirname, "animation_tuner", "public", "app.js"), "utf8");
+const liteUiSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "public", "lite.js"), "utf8");
+const liteServerSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "server.js"), "utf8");
+const liteImportFramesSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "import_frames.js"), "utf8");
+const liteImportSheetSource = fs.readFileSync(path.join(__dirname, "frame_tuner_lite", "import_sheet.js"), "utf8");
+assert.match(tunerAppSource, /window\.XsxbFrameTunerLite/);
+assert.match(tunerAppSource, /function renderLiteExportFrame\(/);
+assert.match(tunerAppSource, /measureFrame:/);
+assert.match(tunerAppSource, /options\.measureOnly === true/);
+assert.match(tunerAppSource, /projectKind !== "frame_lite"/);
+assert.match(liteUiSource, /透明序列导出/);
+assert.match(liteUiSource, /导出 PNG 序列/);
+assert.match(liteUiSource, /导出 Sheet \+ JSON/);
+assert.match(liteUiSource, /重新计算全角色画布/);
+assert.match(liteUiSource, /calculateOptimalLayout/);
+assert.match(liteUiSource, /collectExportGroups/);
+assert.match(liteUiSource, /showDirectoryPicker/);
+assert.match(liteUiSource, /createWritable/);
+assert.doesNotMatch(liteUiSource, /\/api\/lite\/export-file/);
+assert.doesNotMatch(liteServerSource, /\/api\/lite\/export-file/);
+assert.doesNotMatch(liteServerSource, /\/api\/lite\/export-complete/);
+assert.doesNotMatch(liteImportFramesSource, /parseCanvas/);
+assert.doesNotMatch(liteImportSheetSource, /parseCanvas/);
+assert.deepEqual(frameEntries({ frames: [{ filename: "f2.png" }, { filename: "f10.png" }] }).map(([name]) => name), ["f2.png", "f10.png"]);
+assert.deepEqual(frameEntries({ frames: { "f10.png": {}, "f2.png": {} } }).map(([name]) => name), ["f2.png", "f10.png"]);
+assert.deepEqual(cropFromEntry({ frame: { x: 4, y: 7, w: 20, h: 30 } }), { x: 4, y: 7, width: 20, height: 30 });
+assert.deepEqual(cropFromEntry({ crop: { left: 2, top: 3, width: 9, height: 11 } }), { x: 2, y: 3, width: 9, height: 11 });
 
 const normalizedTrails = normalizeAttackTrails({
   bindings: {
@@ -158,7 +214,7 @@ assert.equal(normalizedTrails.bindings["hero/attack"][0].headCurvature, 0.65);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].sticks[0].directionOffset, 35);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].sticks[1].directionOffset, 0);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].coordinateSpace, "group");
-assert.equal(normalizedTrails.schemaVersion, 7);
+assert.equal(normalizedTrails.schemaVersion, 8);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].beforeStopChaseMultiplier, 0.5);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].afterStopChaseMultiplier, 2);
 assert.equal(normalizedTrails.bindings["hero/attack"][0].gradientStops.length, 2);
@@ -171,6 +227,9 @@ assert.equal(normalizeAttackTrails({ bindings: { "hero/punch": [{ name: "Saved s
 assert.equal(normalizeAttackTrails({ presetTexture: { path: "workspace/custom.png", name: "custom.png" } }).presetTexture.path, "workspace/custom.png");
 assert.equal(normalizeAttackTrails({ bindings: { "hero/attack": [{}] } }).bindings["hero/attack"][0].tailFadeStart, 0.6);
 assert.equal(normalizeAttackTrails({ bindings: { "hero/attack": [{}] } }).bindings["hero/attack"][0].pathColumns, 20);
+const savedStylePreset = normalizeAttackTrails({ bindings: { "hero/attack": [{ presetOnly: true, name: "Warm punch", texture: { path: "workspace/trail.png" }, color: "#ff8844", sticks: [] }] } });
+assert.equal(savedStylePreset.bindings["hero/attack"][0].presetOnly, true);
+assert.deepEqual(validateAttackTrails(savedStylePreset, { profiles: [{ id: "hero", animations: [{ id: "attack" }] }] }), []);
 const migratedChase = normalizeAttackTrails({ bindings: { "hero/attack": [{ beforeStopChaseSpeed: 55, afterStopChaseSpeed: 1360 }] } }).bindings["hero/attack"][0];
 assert.equal(migratedChase.beforeStopChaseMultiplier, 0.25);
 assert.equal(migratedChase.afterStopChaseMultiplier, 4);
@@ -180,7 +239,7 @@ const explicitChase = normalizeAttackTrails({ bindings: { "hero/attack": [{ befo
 assert.equal(explicitChase.beforeStopChaseMultiplier, 0.42);
 assert.equal(explicitChase.afterStopChaseMultiplier, 3.5);
 const migratedDefaultChase = normalizeAttackTrails({ schemaVersion: 5, bindings: { "hero/attack": [{ beforeStopChaseMultiplier: 0.7, afterStopChaseMultiplier: 2 }] } });
-assert.equal(migratedDefaultChase.schemaVersion, 7);
+assert.equal(migratedDefaultChase.schemaVersion, 8);
 assert.equal(migratedDefaultChase.bindings["hero/attack"][0].beforeStopChaseMultiplier, 0.5);
 const gradientTrail = normalizeAttackTrails({ bindings: { "hero/gradient": [{
   colorMode: "gradient",
@@ -251,6 +310,27 @@ try {
   assert.equal(fs.existsSync(path.join(skillTarget, "stale.md")), false);
 } finally {
   fs.rmSync(updateTestRoot, { recursive: true, force: true });
+}
+
+const liteStoreTestRoot = fs.mkdtempSync(path.join(os.tmpdir(), "xsxb-lite-store-test-"));
+try {
+  const liteStore = createLiteStore(liteStoreTestRoot);
+  const project = liteStore.ensureProject("demo project", "Demo Project");
+  assert.equal(project.id, "demo_project");
+  assert.equal(project.kind, "frame_lite");
+  assert.equal(liteStore.readRegistry().activeProjectId, "demo_project");
+  const paths = liteStore.paths(project);
+  assert.equal(fs.existsSync(paths.manifest), true);
+  assert.equal(fs.existsSync(paths.tuning), true);
+  assert.equal(fs.existsSync(paths.frameImageAttachments), true);
+  assert.equal(fs.existsSync(paths.attackTrails), true);
+  assert.equal(fs.existsSync(paths.settings), true);
+  assert.equal(paths.workspaceDir.startsWith(path.resolve(liteStoreTestRoot)), true);
+} finally {
+  const resolvedLiteStoreTestRoot = path.resolve(liteStoreTestRoot);
+  const resolvedSystemTemp = path.resolve(os.tmpdir());
+  assert.equal(resolvedLiteStoreTestRoot.startsWith(`${resolvedSystemTemp}${path.sep}`), true);
+  fs.rmSync(resolvedLiteStoreTestRoot, { recursive: true, force: true });
 }
 
 console.log("XSXB self-tests passed.");

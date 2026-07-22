@@ -1,0 +1,103 @@
+body.frameTunerLite #addCodexPet {
+  display: none !important;
+}
+
+body.frameTunerLite .brand .mark {
+  background: linear-gradient(135deg, var(--accent-2) 0 46%, transparent 46% 54%, var(--accent) 54% 100%);
+}
+
+.liteExportPanel {
+  border-top-color: var(--accent-2);
+}
+
+.liteExportBody {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.liteCanvasGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.liteCanvasGrid .number {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  margin: 0;
+}
+
+.liteCanvasGrid .number span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: visible;
+}
+
+.liteCanvasGrid input {
+  min-width: 0;
+  width: 100%;
+}
+
+.liteExportHelp {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.liteCanvasResult {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 84%, var(--accent-2) 16%);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.liteCanvasResult strong {
+  color: var(--text);
+  font: 800 12px/1.2 var(--data-font);
+}
+
+.liteMeasureButton {
+  width: 100%;
+}
+
+@media (max-width: 440px) {
+  .liteCanvasGrid { grid-template-columns: 1fr; }
+}
+
+.liteExportButton {
+  width: 100%;
+  padding-inline: 6px;
+  background: var(--accent-2);
+  color: var(--on-bright);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.liteExportActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 440px) {
+  .liteExportActions { grid-template-columns: 1fr; }
+}
+
+.liteExportStatus {
+  min-height: 34px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--muted);
+  font: 700 11px/1.45 var(--data-font);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

@@ -1,6 +1,6 @@
 ---
 name: xsxb-frame-tuner
-description: Batch-import PNG folders or Godot SpriteFrames into XSXB Frame Tuner, wire a complete playable Godot runtime, and manage the unified Codex Pets project containing built-in and custom pets. Use for character/animation import, gameplay wiring, boxes/SFX/attachments, Codex pet tuning, pet atlas import, or requests mentioning 添加角色, 接入 tuner, Codex 宠物, 预设宠物, 新建宠物, or 宠物图集.
+description: Batch-import PNG folders or Godot SpriteFrames into XSXB Frame Tuner, use the isolated Lite edition for non-game frame-sequence and sprite-sheet work, wire complete playable Godot runtimes, and manage Codex Pets. Use for character/animation import, layered sequence export, attack trails, transparent sprite sheets, gameplay wiring, boxes/SFX/attachments, Codex pet tuning, or requests mentioning 添加角色, 接入 tuner, lite版, 序列帧, 多图层, or 宠物图集.
 ---
 
 # XSXB Frame Tuner
@@ -16,6 +16,14 @@ For every actor import, animation import, replacement, or gameplay wiring task, 
 - [references/validation.md](references/validation.md) for completion gates and commands.
 
 When modifying the tuner web UI or save payload, also read [references/ui-contract.md](references/ui-contract.md).
+
+For non-Godot sequence work or Frame Tuner Lite tasks, read [references/lite-contract.md](references/lite-contract.md). The Godot completion contract below does not apply to Lite; the isolation and validation rules in the Lite contract replace it.
+
+## Frame Tuner Lite
+
+Choose Lite when the requested deliverable is transparent PNG frames or a sprite sheet rather than a wired game runtime. It reuses the editor's timing, transforms, collision-box metadata, image layers, and attack trails, but deliberately excludes audio, Godot sync, and gameplay validation.
+
+The Agent must import all source material without changing its source canvas, copy it into stable Lite paths, validate the isolated project, start the Lite service, and exercise a real browser export. Calculate one uniform canvas for the current character only when exporting, after all of that character's groups and visible layers have been measured. Do not ask the user to run the importer manually. Do not alter the Full Tuner project registry or active Godot project.
 
 ## Codex Pets Project
 

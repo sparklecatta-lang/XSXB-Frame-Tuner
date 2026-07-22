@@ -14,7 +14,7 @@
   const TRAIL_MESH_WIDTH_ROWS = 17;
   const FINAL_HEAD_CAP_MARGIN_RATIO = 0.25;
   const TAIL_ALPHA_EXPONENT = 2.2;
-  const ATTACK_TRAIL_SCHEMA_VERSION = 7;
+  const ATTACK_TRAIL_SCHEMA_VERSION = 8;
   const PRESET_SEGMENT_ID = "__xsxb_default_attack_trail_preset__";
   const DEFAULT_PRESET_TEXTURE = {
     path: "tools/animation_tuner/public/presets/attack_trails/dynamic_trail_luma.png",
@@ -65,6 +65,7 @@
       this.stickId = "";
       this.gradientStopId = "";
       this.gradientDrag = null;
+      this.presetEditOriginal = null;
       this.enabled = false;
       this.guidesVisible = false;
       this.picking = false;
@@ -91,12 +92,14 @@
         "attackTrailGradientColor", "attackTrailGradientPosition", "attackTrailBeforeTimeMs", "attackTrailAfterTimeMs",
         "attackTrailTailSamples", "attackTrailPathColumns", "attackTrailTailFadeStart", "attackTrailHeadCurvature", "attackTrailHeadCurvatureValue", "attackTrailAddStick",
         "attackTrailDeleteStick", "attackTrailReverse", "attackTrailTimingSummary",
-        "attackTrailGuideToggle",
+        "attackTrailGuideToggle", "attackTrailPresetDialog", "attackTrailPresetForm",
+        "attackTrailPresetName", "attackTrailPresetCancel",
       ].map((id) => [id, document.querySelector(`#${id}`)]));
       this._bind();
     }
 
     load(raw) {
+      this.presetEditOriginal = null;
       this.data = this._normalizeData(raw);
       this.pathCache.clear();
       this.processed.clear();
@@ -108,6 +111,7 @@
     }
 
     restore(raw) {
+      this.presetEditOriginal = null;
       this.data = this._normalizeData(raw);
       this.pathCache.clear();
       this.render();
@@ -115,10 +119,18 @@
     }
 
     serialize() {
-      return this._normalizeData(this.data);
+      const data = clone(this.data);
+      const draft = this.presetEditOriginal;
+      if (draft) {
+        const segments = data.bindings[draft.bindingKey] || [];
+        const index = segments.findIndex((segment) => segment.id === draft.segmentId);
+        if (index >= 0) segments[index] = clone(draft.segment);
+      }
+      return this._normalizeData(data);
     }
 
     contextChanged() {
+      this._discardPresetEdit();
       const supported = this.hooks.projectKind() !== "codex_pets" && Boolean(this.hooks.group());
       this._syncGuideToggle(supported);
       if (this.els.attackTrailPanel) this.els.attackTrailPanel.hidden = !supported;
@@ -144,6 +156,26 @@
       return this.enabled && this._segments().some((segment) => segment.enabled !== false && segment.generated !== false && segment.sticks.length >= 2);
     }
 
+    async prepareExport() {
+      await Promise.all(this._segments()
+        .filter((segment) => segment.enabled !== false && segment.generated !== false && segment.texture?.path)
+        .map(async (segment) => {
+          if (this.images.has(segment.texture.path)) return;
+          const image = await this.hooks.loadTexture(segment.texture);
+          this.images.set(segment.texture.path, image);
+        }));
+    }
+
+    exportEndTime(animationDuration = 0) {
+      let endTime = Math.max(0, Number(animationDuration || 0));
+      for (const segment of this._segments()) {
+        if (segment.enabled === false || segment.generated === false || segment.sticks.length < 2) continue;
+        const pathEnd = this._timing(segment).absolute.at(-1) || 0;
+        endTime = Math.max(endTime, pathEnd + this._chaseTimes(segment).afterMs / 1000);
+      }
+      return endTime;
+    }
+
     selectedStickArrival() {
       if (!this.enabled) return null;
       const stick = this._stick();
@@ -160,7 +192,7 @@
       e.attackTrailBody.hidden = !this.enabled;
       const segments = this._displaySegments();
       e.attackTrailSegment.innerHTML = segments.length
-        ? segments.map((segment, index) => `<option value="${this._escape(segment.id)}">${index + 1}. ${this._escape(segment.name || `Trail ${index + 1}`)}</option>`).join("")
+        ? segments.map((segment, index) => `<option value="${this._escape(segment.id)}">${segment.presetOnly ? "预设 · " : `${index + 1}. `}${this._escape(segment.name || `Trail ${index + 1}`)}</option>`).join("")
         : '<option value="">暂无拖尾段</option>';
       e.attackTrailSegment.value = this.segmentId;
       const segment = this._segment();
@@ -461,12 +493,19 @@
         this.render(); this.hooks.draw();
       });
       e.attackTrailSegment.addEventListener("change", () => {
+        this._discardPresetEdit();
         this.segmentId = e.attackTrailSegment.value;
         this.stickId = this._segment()?.sticks[0]?.id || "";
         this.picking = false;
         this.render(); this.hooks.draw();
       });
-      e.attackTrailNew.addEventListener("click", () => this._newSegment());
+      e.attackTrailNew.addEventListener("click", () => this._openPresetDialog());
+      e.attackTrailPresetCancel.addEventListener("click", () => e.attackTrailPresetDialog.close());
+      e.attackTrailPresetForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        this._savePreset(e.attackTrailPresetName.value);
+        e.attackTrailPresetDialog.close();
+      });
       e.attackTrailDelete.addEventListener("click", () => this._deleteSegment());
       e.attackTrailLayerToggle.addEventListener("click", () => this._toggleStickLayer());
       e.attackTrailTextureBrowse.addEventListener("click", () => e.attackTrailTextureFile.click());
@@ -542,6 +581,7 @@
         profileId,
         animationId,
         generated: false,
+        presetOnly: true,
         texture: clone(this.data.presetTexture || DEFAULT_PRESET_TEXTURE),
       }, 0, key);
     }
@@ -559,7 +599,47 @@
         id: randomId("trail"),
         name: "默认拖尾",
         generated: false,
+        presetOnly: true,
       }, 0, key);
+      (this.data.bindings[key] ||= []).push(segment);
+      this.segmentId = segment.id;
+      return segment;
+    }
+
+    _beginPresetEdit(segment) {
+      if (!segment?.presetOnly) return;
+      const bindingKey = this._bindingKey();
+      if (this.presetEditOriginal?.bindingKey === bindingKey && this.presetEditOriginal?.segmentId === segment.id) return;
+      this._discardPresetEdit();
+      this.presetEditOriginal = { bindingKey, segmentId: segment.id, segment: clone(segment) };
+    }
+
+    _discardPresetEdit() {
+      const draft = this.presetEditOriginal;
+      if (!draft) return;
+      const segments = this.data.bindings[draft.bindingKey] || [];
+      const index = segments.findIndex((segment) => segment.id === draft.segmentId);
+      if (index >= 0) segments[index] = clone(draft.segment);
+      this.presetEditOriginal = null;
+      this.processed.clear();
+      this.pathCache.clear();
+    }
+
+    _trailFromSavedPreset(source) {
+      const key = this._bindingKey();
+      const style = clone(source);
+      this._discardPresetEdit();
+      const [profileId, animationId] = key.split("/");
+      const segment = this._normalizeSegment({
+        ...style,
+        id: randomId("trail"),
+        name: style.name,
+        profileId,
+        animationId,
+        generated: false,
+        presetOnly: false,
+        sticks: [],
+      }, this._segments().length, key);
       (this.data.bindings[key] ||= []).push(segment);
       this.segmentId = segment.id;
       return segment;
@@ -581,12 +661,42 @@
       return segment.sticks.filter((stick) => stick.frame === frame);
     }
 
-    _newSegment() {
+    _defaultPresetName() {
+      const used = new Set(this._segments().map((segment) => String(segment.name || "").trim().toLocaleLowerCase()));
+      let number = Math.max(1, this._segments().length + 1);
+      while (used.has(`拖尾预设 ${number}`.toLocaleLowerCase())) number += 1;
+      return `拖尾预设 ${number}`;
+    }
+
+    _openPresetDialog() {
+      const segment = this._segment();
+      if (!segment) return;
+      const fallbackName = this._defaultPresetName();
+      this.els.attackTrailPresetName.value = "";
+      this.els.attackTrailPresetName.placeholder = `留空则使用“${fallbackName}”`;
+      this.els.attackTrailPresetDialog.showModal();
+      requestAnimationFrame(() => this.els.attackTrailPresetName.focus());
+    }
+
+    _savePreset(name) {
       const key = this._bindingKey();
-      if (!key) return;
-      this.hooks.pushUndo("new attack trail segment");
+      const source = this._segment();
+      if (!key || !source) return;
+      this.hooks.pushUndo("save attack trail preset");
+      const style = clone(source);
+      this._discardPresetEdit();
       const [profileId, animationId] = key.split("/");
-      const segment = this._normalizeSegment({ id: randomId("trail"), name: `Trail ${this._segments().length + 1}`, profileId, animationId }, this._segments().length, key);
+      const presetName = String(name || "").trim().slice(0, 60) || this._defaultPresetName();
+      const segment = this._normalizeSegment({
+        ...style,
+        id: randomId("trail"),
+        name: presetName,
+        profileId,
+        animationId,
+        generated: false,
+        presetOnly: true,
+        sticks: [],
+      }, this._segments().length, key);
       (this.data.bindings[key] ||= []).push(segment);
       this.segmentId = segment.id;
       this.stickId = "";
@@ -595,8 +705,9 @@
 
     _deleteSegment() {
       const segment = this._segment();
-      if (!segment || this._isPresetSegment(segment) || !window.confirm(`删除拖尾段“${segment.name}”？`)) return;
+      if (!segment || this._isPresetSegment(segment) || !window.confirm(`删除${segment.presetOnly ? "预设" : "拖尾段"}“${segment.name}”？`)) return;
       this.hooks.pushUndo("delete attack trail segment");
+      this.presetEditOriginal = null;
       this.data.bindings[this._bindingKey()] = this._segments().filter((entry) => entry.id !== segment.id);
       this.segmentId = this._segments()[0]?.id || "";
       this.stickId = this._segment()?.sticks[0]?.id || "";
@@ -606,6 +717,7 @@
     _editSegment(key, value) {
       const segment = this._materializePreset();
       if (!segment) return;
+      this._beginPresetEdit(segment);
       segment[key] = value;
       this._updateGenerated(segment);
       this.pathCache.clear(); this.processed.clear();
@@ -618,6 +730,7 @@
       this.hooks.pushUndo("change attack trail color mode");
       const segment = this._materializePreset();
       if (!segment) return;
+      this._beginPresetEdit(segment);
       segment.colorMode = mode;
       if (mode === "gradient") {
         segment.gradientStops = normalizeGradientStops(segment.gradientStops, segment.color);
@@ -684,6 +797,7 @@
         this.gradientDrag = { pointerId: event.pointerId, undoPushed: false };
       } else {
         if (segment.gradientStops.length >= 16) return this.hooks.status("渐变最多支持 16 个颜色节点。", true);
+        this._beginPresetEdit(segment);
         this.hooks.pushUndo("add attack trail gradient stop");
         const position = this._gradientPosition(event);
         const stop = { id: randomId("gradient"), position, color: channelsToColor(this._gradientColorAt(segment.gradientStops, position)) };
@@ -709,6 +823,7 @@
         this.hooks.pushUndo("move attack trail gradient stop");
         this.gradientDrag.undoPushed = true;
       }
+      this._beginPresetEdit(segment);
       stop.position = position;
       segment.gradientStops.sort((a, b) => a.position - b.position);
       this.processed.clear(); this.hooks.markDirty(); this._renderGradientEditor(segment); this.hooks.draw();
@@ -721,8 +836,10 @@
     }
 
     _setGradientStopColor(value) {
-      const stop = this._gradientStop();
+      const segment = this._segment();
+      const stop = this._gradientStop(segment);
       if (!stop) return;
+      this._beginPresetEdit(segment);
       stop.color = normalizeColor(value, stop.color);
       this.processed.clear(); this.hooks.markDirty(); this._renderGradientEditor(this._segment()); this.hooks.draw();
     }
@@ -733,6 +850,7 @@
       if (!segment || !stop) return;
       if (segment.gradientStops.length <= 2) return this.hooks.status("渐变至少保留两个颜色节点。", true);
       this.hooks.pushUndo("delete attack trail gradient stop");
+      this._beginPresetEdit(segment);
       const oldIndex = segment.gradientStops.indexOf(stop);
       segment.gradientStops = segment.gradientStops.filter((entry) => entry.id !== stop.id);
       this.gradientStopId = segment.gradientStops[Math.min(oldIndex, segment.gradientStops.length - 1)].id;
@@ -770,10 +888,13 @@
     }
 
     _addStick() {
-      if (!this._segment()) return;
+      const selected = this._segment();
+      if (!selected) return;
       this.hooks.pushUndo("add attack trail stick");
-      const segment = this._materializePreset();
+      let segment = this._materializePreset();
       if (!segment) return;
+      if (segment.presetOnly && !this._isPresetSegment(selected)) segment = this._trailFromSavedPreset(segment);
+      segment.presetOnly = false;
       const frame = this.hooks.selectedFrame();
       const firstLaterIndex = segment.sticks.findIndex((stick) => stick.frame > frame);
       const insertIndex = firstLaterIndex < 0 ? segment.sticks.length : firstLaterIndex;
@@ -873,6 +994,7 @@
         const result = await response.json();
         this.hooks.pushUndo("import attack trail texture");
         const segment = this._materializePreset();
+        this._beginPresetEdit(segment);
         segment.texture = result.texture;
         this._updateGenerated(segment);
         this.images.delete(result.texture.path);
@@ -890,7 +1012,7 @@
       if (!segment) return false;
       const validTexture = Boolean(segment.texture?.path)
         && (segment.colorMode !== "original" || segment.texture.hasEffectiveAlpha === true);
-      segment.generated = validTexture && segment.sticks.length >= 2;
+      segment.generated = segment.presetOnly !== true && validTexture && segment.sticks.length >= 2;
       return segment.generated;
     }
 
@@ -907,6 +1029,7 @@
       if (rgba[3] < 8) return this.hooks.status("透明像素不接受取色；请点击角色的有效 Sprite 像素。", true);
       const color = `#${[rgba[0], rgba[1], rgba[2]].map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
       const segment = this._materializePreset();
+      this._beginPresetEdit(segment);
       segment.color = color;
       segment.colorMode = "solid";
       this.picking = false;
@@ -1522,7 +1645,7 @@
       const color = normalizeColor(value.color);
       const segment = {
         id: String(value.id || `trail_${index + 1}`), name: String(value.name || `Trail ${index + 1}`), profileId: String(value.profileId || profileId), animationId: String(value.animationId || animationId),
-        enabled: true, generated: value.generated !== false, coordinateSpace: "group", layer: segmentLayer,
+        enabled: true, generated: value.generated !== false, presetOnly: value.presetOnly === true && (!Array.isArray(value.sticks) || value.sticks.length === 0), coordinateSpace: "group", layer: segmentLayer,
         texture: { path: String(value.texture?.path || ""), assetHash: String(value.texture?.assetHash || ""), name: String(value.texture?.name || ""), type: String(value.texture?.type || "image/png"), width: Number(value.texture?.width || 0), height: Number(value.texture?.height || 0), hasEffectiveAlpha: value.texture?.hasEffectiveAlpha === true },
         colorMode: normalizeColorMode(value.colorMode || value.color_mode || "solid"), color,
         gradientStops: normalizeGradientStops(value.gradientStops ?? value.gradient_stops, color),

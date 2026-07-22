@@ -1008,6 +1008,35 @@ body.codexPetsProject [data-panel="boxes"] {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
 .trailSegmentRow button { padding-inline: 9px; }
+.trailPresetDialog {
+  width: min(390px, calc(100vw - 28px));
+  padding: 0;
+  border: 3px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+.trailPresetDialog::backdrop {
+  background: color-mix(in srgb, var(--ink) 48%, transparent);
+  backdrop-filter: blur(2px);
+}
+.trailPresetForm {
+  display: grid;
+  gap: 13px;
+  padding: 18px;
+}
+.trailPresetForm h3,
+.trailPresetForm p { margin: 0; }
+.trailPresetForm h3 { font-size: 18px; line-height: 1.15; }
+.trailPresetForm p { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.trailPresetForm .field { margin: 0; }
+.trailPresetActions {
+  display: grid;
+  grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+  gap: 8px;
+}
+.trailPresetActions button { width: 100%; }
 .trailStickActionRow {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

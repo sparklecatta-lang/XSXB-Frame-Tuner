@@ -18,7 +18,7 @@ const DEFAULT_AFTER_CHASE_MULTIPLIER = 2;
 const DEFAULT_PATH_COLUMNS = 20;
 const LEGACY_BEFORE_CHASE_SPEED = 110;
 const LEGACY_AFTER_CHASE_SPEED = 680;
-const ATTACK_TRAIL_SCHEMA_VERSION = 7;
+const ATTACK_TRAIL_SCHEMA_VERSION = 8;
 const EMPTY_ATTACK_TRAILS = Object.freeze({ schemaVersion: ATTACK_TRAIL_SCHEMA_VERSION, presetTexture: DEFAULT_ATTACK_TRAIL_PRESET_TEXTURE, bindings: {} });
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -160,6 +160,7 @@ function normalizeSegment(value, index, bindingKey, sourceSchema = 6) {
     animationId: String(segment.animationId || animationId),
     enabled: segment.enabled !== false,
     generated: segment.generated !== false,
+    presetOnly: segment.presetOnly === true && sticks.length === 0,
     coordinateSpace: "group",
     layer: segmentLayer,
     texture: normalizeTexture(segment.texture),
@@ -303,6 +304,7 @@ function validateAttackTrails(data, manifest) {
   for (const [key, segments] of Object.entries(data?.bindings || {})) {
     if (!profileAnimations.has(key)) warnings.push(`${key}: 攻击拖尾绑定的动画不存在。`);
     for (const segment of segments) {
+      if (segment.presetOnly === true) continue;
       if (!segment.texture?.path) warnings.push(`${key}/${segment.id}: 尚未导入拖尾纹理。`);
       if (segment.sticks.length < 2) warnings.push(`${key}/${segment.id}: 至少需要两根棍子。`);
       if (segment.colorMode === "original" && !segment.texture?.hasEffectiveAlpha) {
