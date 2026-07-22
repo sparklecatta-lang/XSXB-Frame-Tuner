@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 - 2026-07-22
+
+### Features
+
+- Add the isolated Frame Tuner Lite workflow for PNG sequences and JSON sprite sheets, with stable local imports, layered animation editing, shared attack-trail tools, and no Godot or audio binding.
+- Export every primary animation in the current Lite character as transparent PNG sequences or re-importable Sprite Sheet + JSON packages, using one automatically measured character-wide canvas and a user-selected destination.
+- Save edited attack-trail textures, color treatments, curvature, and motion settings as new named presets without overwriting the bundled default or copying stick paths.
+- Add Full and Lite BAT launchers plus a shared single-service launcher suitable for icon-bearing Windows desktop shortcuts.
+
+### Fixes
+
+- Declare UTF-8 for every Full and Lite HTML, CSS, JavaScript, JSON, and text response so Chinese controls such as the trail texture selector cannot be decoded as mojibake.
+- Add strict UTF-8 and mojibake regression checks for both web interfaces.
+
+### Documentation
+
+- Document Lite isolation, import formats, character-wide export behavior, launchers, validation, and the compressed attack-trail demonstration embedded in the README.
+
 ## 0.2.0 - 2026-07-21
 
 ### Features
